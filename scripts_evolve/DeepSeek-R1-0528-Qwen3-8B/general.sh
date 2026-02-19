@@ -143,6 +143,21 @@ GRPO_ARGS=(
   --use-tis
 )
 
+PKPO_ARGS=(
+  --advantage-estimator pkpo
+  --pkpo-k ${PKPO_K:-4}
+  --pkpo-estimator-type ${PKPO_ESTIMATOR_TYPE:-sloo_minus_one}
+  --entropy-coef 0.01
+  --eps-clip 0.2
+  --eps-clip-high 0.28
+
+  --use-tis
+)
+
+if [ -n "${PKPO_K_ANNEAL_STEP}" ]; then
+  PKPO_ARGS+=(--pkpo-k-anneal-step ${PKPO_K_ANNEAL_STEP} --pkpo-k-anneal-target ${PKPO_K_ANNEAL_TARGET:-1})
+fi
+
 OPTIMIZER_ARGS=(
   --optimizer adam
   --lr 1e-6
@@ -181,9 +196,9 @@ MISC_ARGS=(
   --attention-backend flash
 )
 
-# Start Ray (training/inference separation: don't use --colocate; use train_async.py)
+# Start Ray with all 16 GPUs (8 training + 8 inference, no colocate)
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 16 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
 
 # Disable Triton
@@ -231,16 +246,17 @@ ray job submit --address="http://127.0.0.1:8265" \
   --runtime-env-json="${RUNTIME_ENV_JSON}" \
   -- python3 train.py \
   --actor-num-nodes 1 \
-   --actor-num-gpus-per-node 8 \
-   --colocate \
+  --actor-num-gpus-per-node 8 \
+  --rollout-num-gpus 8 \
   ${MODEL_ARGS[@]} \
   ${CKPT_ARGS[@]} \
   ${ROLLOUT_ARGS[@]} \
   ${OPTIMIZER_ARGS[@]} \
-  ${GRPO_ARGS[@]} \
+  ${PKPO_ARGS[@]} \
   ${DISTRIBUTED_ARGS[@]} \
   ${WANDB_ARGS[@]} \
   ${PERF_ARGS[@]} \
   ${SGLANG_ARGS[@]} \
   ${MISC_ARGS[@]}
   
+  # ${GRPO_ARGS[@]} \
