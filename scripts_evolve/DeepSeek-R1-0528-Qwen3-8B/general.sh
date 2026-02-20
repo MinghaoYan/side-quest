@@ -172,13 +172,13 @@ OPTIMIZER_ARGS=(
 
 )
 
-WANDB_ARGS=(
-  --use-wandb
-  --wandb-team ${WANDB_ENTITY}
-  --wandb-project "${WANDB_PROJECT}"
-  --wandb-group "${RUN_NAME}"
-  --wandb-key "${WANDB_API_KEY}"
-)
+# WANDB_ARGS=(
+#   --use-wandb
+#   --wandb-team ${WANDB_ENTITY}
+#   --wandb-project "${WANDB_PROJECT}"
+#   --wandb-group "${RUN_NAME}"
+#   --wandb-key "${WANDB_API_KEY}"
+# )
 
 SGLANG_ARGS=(
   --rollout-num-gpus-per-engine 8
@@ -254,9 +254,9 @@ ray job submit --address="http://127.0.0.1:8265" \
   ${OPTIMIZER_ARGS[@]} \
   ${PKPO_ARGS[@]} \
   ${DISTRIBUTED_ARGS[@]} \
-  ${WANDB_ARGS[@]} \
   ${PERF_ARGS[@]} \
   ${SGLANG_ARGS[@]} \
   ${MISC_ARGS[@]}
   
+  # ${WANDB_ARGS[@]} \
   # ${GRPO_ARGS[@]} \

@@ -1,10 +1,7 @@
-
-
-
 ########################### CONFIGURATION SECTION - EDIT THESE VARIABLES #############################
 
 #### Important: replace SAVE_PATH with your path with enough space ####
-export SAVE_PATH=/path/to/disk
+export SAVE_PATH="/workspace/logs"
 
 #### Model selection ####
 SMALL_MODEL_NAME="dpsk_distill_qwen3_8b"

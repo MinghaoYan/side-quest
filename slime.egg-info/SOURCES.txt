@@ -71,12 +71,14 @@ slime/utils/arguments.py
 slime/utils/async_utils.py
 slime/utils/data.py
 slime/utils/distributed_utils.py
+slime/utils/entropic_utils.py
 slime/utils/flops_utils.py
 slime/utils/fp8_kernel.py
 slime/utils/http_utils.py
 slime/utils/mask_utils.py
 slime/utils/memory_utils.py
 slime/utils/misc.py
+slime/utils/pkpo_utils.py
 slime/utils/ppo_utils.py
 slime/utils/ray_utils.py
 slime/utils/seqlen_balancing.py
@@ -94,3 +96,4 @@ slime_plugins/models/glm4.py
 slime_plugins/models/hf_attention.py
 slime_plugins/models/qwen3_next.py
 tests/test_fsdp_import.py
+tests/test_pkpo.py

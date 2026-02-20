@@ -64,6 +64,13 @@ docker run --rm --name slime-evolve \
   -v "$PWD":/workspace -w /workspace \
   -v /path/to/disk:/path/to/disk \
   -it slimerl/slime:v0.5.0rc0-cu126 /bin/bash
+
+sudo docker run -d --name slime-evolve   --gpus all --ipc=host --shm-size=16g   --ulimit memlock=-1 --ulimit stack=67108864   -v "$PWD":/workspace -w /workspace   slimerl/slime:v0.5.0rc0-cu126 sleep infinity
+
+apt update
+apt install -y screen
+sudo docker exec -it slime-evolve /bin/bash
+bash ./run.sh 2>&1 | tee run.log
 ```
 
 After entering the docker, run the installation commands:
