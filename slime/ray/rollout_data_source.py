@@ -16,7 +16,74 @@ from slime.utils.types import Sample
 # === openevolve_adapted Evolving Gym ===
 from openevolve.evolving_gym import SingleTaskEvolvingGym
 from slime.rollout.rm_hub.evolving_gym_rm import set_gym as _set_evolving_gym_to_rm
-        
+
+# === PACEvolve Evolving Gym ===
+from pacevolve.evolving_gym import PACEvolveSingleTaskGym
+from slime.rollout.rm_hub.pacevolve_gym_rm import set_gym as _set_pacevolve_gym_to_rm
+
+
+class PACEvolveGymManager:
+    """Wrapper for PACEvolveSingleTaskGym, same interface as EvolvingGymManager."""
+
+    def __init__(self, args, tokenizer):
+        self.args = args
+        self.tokenizer = tokenizer
+
+        assert args.pacevolve_gym_config_path, \
+            "PACEvolveGym needs --pacevolve-gym-config-path"
+
+        self.gym = PACEvolveSingleTaskGym(
+            config_path=args.pacevolve_gym_config_path,
+            initial_program_path=getattr(args, "pacevolve_gym_initial_program", None),
+            max_concurrent_evaluations=getattr(args, "pacevolve_gym_max_concurrent_evals", 1),
+            reward_process_type=getattr(args, "pacevolve_gym_reward_process_type", "original_reward"),
+            seed=getattr(args, "pacevolve_gym_seed", 1234),
+            log_prompts=getattr(args, "pacevolve_gym_log_prompts", True),
+            backtrack_freq=getattr(args, "pacevolve_gym_backtrack_freq", -1),
+            backtrack_len=getattr(args, "pacevolve_gym_backtrack_len", 5),
+            power_alpha=getattr(args, "pacevolve_gym_power_alpha", 1.5),
+            idea_cap=getattr(args, "pacevolve_gym_idea_cap", 5),
+            merge_freq=getattr(args, "pacevolve_gym_merge_freq", 1),
+            summarize_freq=getattr(args, "pacevolve_gym_summarize_freq", 20),
+        )
+
+        if getattr(self.args, "pacevolve_gym_record", False):
+            self.gym.enable_recording(
+                getattr(self.args, "pacevolve_gym_record_dir", "gym_records")
+            )
+
+        print(f"[PACEvolveGymManager] Initialized successfully")
+        _set_pacevolve_gym_to_rm(self.gym)
+
+    def get_sample(self) -> Optional[Sample]:
+        prompt_dict, parent_program = self.gym.problem_generator()
+        system_txt = prompt_dict.get("system") or ""
+        user_txt = prompt_dict.get("user") or ""
+
+        apply_chat_template = self.args.apply_chat_template
+        tokenizer = self.tokenizer
+        if apply_chat_template:
+            messages = []
+            if system_txt:
+                messages.append({"role": "system", "content": system_txt})
+            if not user_txt:
+                assert False, "user part should not be empty"
+            messages.append({"role": "user", "content": user_txt})
+            prompt_str = tokenizer.apply_chat_template(
+                messages, None, tokenize=False, add_generation_prompt=True
+            )
+        else:
+            prompt_str = (system_txt + "\n\n" + user_txt).strip()
+
+        return Sample(
+            prompt=prompt_str,
+            label=None,
+            metadata={
+                "parent_program": parent_program,
+                "evolving_gym": True,
+            },
+        )
+
 
 class EvolvingGymManager:
     """
@@ -115,6 +182,25 @@ class EvolvingGymManager:
         )
 
 
+def _find_latest_pacevolve_checkpoint(load_dir: str) -> Optional[int]:
+    """Find the latest PACEvolve database checkpoint rollout_id from save directory."""
+    rollout_dir = os.path.join(load_dir, "rollout")
+    if not os.path.exists(rollout_dir):
+        return None
+
+    db_files = glob.glob(os.path.join(rollout_dir, "pacevolve_gym_database_*"))
+    if not db_files:
+        return None
+
+    rollout_ids = []
+    for db_file in db_files:
+        match = re.search(r'pacevolve_gym_database_(\d+)', os.path.basename(db_file))
+        if match:
+            rollout_ids.append(int(match.group(1)))
+
+    return max(rollout_ids) if rollout_ids else None
+
+
 def _find_latest_database_checkpoint(load_dir: str) -> Optional[int]:
     """Find the latest database checkpoint rollout_id from save directory."""
     rollout_dir = os.path.join(load_dir, "rollout")
@@ -147,13 +233,15 @@ class RolloutDataSource:
         flags = [
             bool(args.rollout_global_dataset),
             bool(getattr(args, "evolving_gym", False)),
+            bool(getattr(args, "pacevolve_gym", False)),
         ]
         assert sum(flags) == 1, (
-            "Exactly one of --rollout-global-dataset, --evolving-gym "
-            "must be selected."
+            "Exactly one of --rollout-global-dataset, --evolving-gym, "
+            "--pacevolve-gym must be selected."
         )
         
         self.evolving_gym_manager = None
+        self.pacevolve_gym_manager = None
 
         if args.rollout_global_dataset:
             tokenizer = AutoTokenizer.from_pretrained(args.hf_checkpoint, trust_remote_code=True)
@@ -179,6 +267,10 @@ class RolloutDataSource:
             self.dataset = None
             tokenizer = AutoTokenizer.from_pretrained(args.hf_checkpoint, trust_remote_code=True)
             self.evolving_gym_manager = EvolvingGymManager(args, tokenizer)
+        elif getattr(args, "pacevolve_gym", False):
+            self.dataset = None
+            tokenizer = AutoTokenizer.from_pretrained(args.hf_checkpoint, trust_remote_code=True)
+            self.pacevolve_gym_manager = PACEvolveGymManager(args, tokenizer)
 
         else:
             assert False, "No valid data source."
@@ -221,6 +313,19 @@ class RolloutDataSource:
                     group.append(sample)
                 samples.append(group)
             assert len(samples) == num_samples
+        elif self.pacevolve_gym_manager is not None:
+            while len(samples) < num_samples:
+                prompt_sample = self.pacevolve_gym_manager.get_sample()
+                if prompt_sample is None:
+                    continue
+                group = []
+                for _ in range(self.args.n_samples_per_prompt):
+                    sample = copy.deepcopy(prompt_sample)
+                    sample.index = self.sample_index
+                    self.sample_index += 1
+                    group.append(sample)
+                samples.append(group)
+            assert len(samples) == num_samples
         else:
             assert False, "There is no valid data source."
             for _ in range(num_samples):
@@ -240,7 +345,7 @@ class RolloutDataSource:
 
     def save(self, rollout_id):
         if not self.args.rollout_global_dataset:
-            if self.args.evolving_gym:
+            if getattr(self.args, "evolving_gym", False):
                 database_path = os.path.join(self.args.save, f"rollout/evolving_gym_database_{rollout_id}")
                 os.makedirs(os.path.dirname(database_path), exist_ok=True)
                 self.evolving_gym_manager.gym.database.save(database_path, rollout_id)
@@ -248,10 +353,15 @@ class RolloutDataSource:
                 if self.evolving_gym_manager.gym.use_puct_reuse and self.evolving_gym_manager.gym.puct_archive is not None:
                     puct_path = os.path.join(self.args.save, f"rollout/puct_archive_{rollout_id}")
                     self.evolving_gym_manager.gym.puct_archive.save(puct_path)
+            elif getattr(self.args, "pacevolve_gym", False):
+                database_path = os.path.join(self.args.save, f"rollout/pacevolve_gym_database_{rollout_id}")
+                os.makedirs(os.path.dirname(database_path), exist_ok=True)
+                self.pacevolve_gym_manager.gym.database.save(database_path, rollout_id)
             else:
-                assert False, "None of args.rollout_global_dataset or args.evolving_gym is set."
+                assert False, "None of args.rollout_global_dataset, args.evolving_gym, or args.pacevolve_gym is set."
         else :
-            assert not self.args.evolving_gym, "If args.rollout_global_dataset is set, args.evolving_gym must not be set."
+            assert not getattr(self.args, "evolving_gym", False) and not getattr(self.args, "pacevolve_gym", False), \
+                "If args.rollout_global_dataset is set, gym modes must not be set."
 
         state_dict = {
             "sample_offset": self.sample_offset,
@@ -284,19 +394,26 @@ class RolloutDataSource:
                 else:
                     mode_str = "DEBUG-ROLLOUT-ONLY" if getattr(self.args, "debug_rollout_only", False) else "NORMAL"
                     print(f"[LOAD] ({mode_str}) No database checkpoint found, initializing new database")
-                    # Initialize database for first time (both modes: debug-rollout-only and normal)
                     print(f"[LOAD] Calling gym.initialize_sync()...")
                     self.evolving_gym_manager.gym.initialize_sync()
-                    # Print initial database state
                     if self.evolving_gym_manager.gym.database.programs:
                         initial_prog = list(self.evolving_gym_manager.gym.database.programs.values())[0]
                         print(f"[LOAD] Initial program metrics: {initial_prog.metrics}")
-                    # Seed PUCT archive if enabled
                     if self.evolving_gym_manager.gym.use_puct_reuse:
                         self.evolving_gym_manager.gym.seed_puct_archive()
                     return None
+            elif getattr(self.args, "pacevolve_gym", False):
+                detected_id = _find_latest_pacevolve_checkpoint(self.args.load)
+                if detected_id is not None:
+                    rollout_id = detected_id
+                    detected_rollout_id = detected_id
+                    print(f"[LOAD] Auto-detected PACEvolve database checkpoint at rollout_id={rollout_id}")
+                else:
+                    print(f"[LOAD] No PACEvolve database checkpoint found, initializing new database")
+                    self.pacevolve_gym_manager.gym.initialize_sync()
+                    return None
             else:
-                print(f"[LOAD] evolving_gym=False, returning None")
+                print(f"[LOAD] no gym mode active, returning None")
                 return None
 
         # If still rollout_id == -1, return None
@@ -304,37 +421,39 @@ class RolloutDataSource:
             return None
 
         if not self.args.rollout_global_dataset:
-            if self.args.evolving_gym:
-                # Load evolving gym database
+            if getattr(self.args, "evolving_gym", False):
                 database_path = os.path.join(self.args.load, f"rollout/evolving_gym_database_{rollout_id}")
                 if os.path.exists(database_path):
                     self.evolving_gym_manager.gym.database.load(database_path)
-                    # Set initialization flag to avoid duplicate initialization
                     self.evolving_gym_manager.gym._initialized = True
                     print(f"[LOAD] Loaded evolving gym database with {len(self.evolving_gym_manager.gym.database.programs)} programs from rollout_id={rollout_id}")
 
-                    # Load PUCT archive if enabled
                     if self.evolving_gym_manager.gym.use_puct_reuse:
                         puct_path = os.path.join(self.args.load, f"rollout/puct_archive_{rollout_id}")
                         if os.path.exists(puct_path):
                             self.evolving_gym_manager.gym.puct_archive.load(puct_path)
                             print(f"[LOAD] Loaded PUCT archive with {self.evolving_gym_manager.gym.puct_archive.size()} states")
                         else:
-                            # Rebuild PUCT archive from database programs
                             print(f"[LOAD] No PUCT archive checkpoint found, seeding from database")
                             self.evolving_gym_manager.gym.seed_puct_archive()
 
-                    # Debug output: print database distribution (similar to sglang_rollout.py style)
                     if self.evolving_gym_manager.gym.recording_enabled and self.evolving_gym_manager.gym._recorder:
                         self.evolving_gym_manager.gym._recorder.print_database_score_distribution()
                 else:
-                    # assert False, f"Evolving gym database {database_path} does not exist."
                     print(f"[LOAD] Warning: Evolving gym database {database_path} does not exist, using empty database")
+            elif getattr(self.args, "pacevolve_gym", False):
+                database_path = os.path.join(self.args.load, f"rollout/pacevolve_gym_database_{rollout_id}")
+                if os.path.exists(database_path):
+                    self.pacevolve_gym_manager.gym.database.load(database_path)
+                    self.pacevolve_gym_manager.gym._initialized = True
+                    print(f"[LOAD] Loaded PACEvolve gym database from rollout_id={rollout_id}")
+                else:
+                    print(f"[LOAD] Warning: PACEvolve gym database {database_path} does not exist, using empty database")
             else:
-                assert False, "None of args.rollout_global_dataset or args.evolving_gym is set."
-            # return
+                assert False, "None of args.rollout_global_dataset, args.evolving_gym, or args.pacevolve_gym is set."
         else :
-            assert not self.args.evolving_gym, "If args.rollout_global_dataset is set, args.evolving_gym must not be set."
+            assert not getattr(self.args, "evolving_gym", False) and not getattr(self.args, "pacevolve_gym", False), \
+                "If args.rollout_global_dataset is set, gym modes must not be set."
 
         # Load RolloutDataSource base state
         path = os.path.join(self.args.load, f"rollout/global_dataset_state_dict_{rollout_id}.pt")

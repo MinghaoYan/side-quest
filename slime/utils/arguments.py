@@ -1080,6 +1080,101 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 help="Number of top children to keep per expanded parent in PUCT (default: 2).",
             )
 
+            # PACEvolve gym arguments
+            parser.add_argument(
+                "--pacevolve-gym",
+                action="store_true",
+                default=False,
+                help="Use PACEvolveSingleTaskGym as the rollout environment (mutually exclusive with --evolving-gym).",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-config-path",
+                type=str,
+                default=None,
+                help="Path to PACEvolve config YAML file.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-initial-program",
+                type=str,
+                default=None,
+                help="Path to initial program file for PACEvolve gym (optional, defaults to config's sota_algo).",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-max-concurrent-evals",
+                type=int,
+                default=8,
+                help="Max concurrent evaluations inside PACEvolve gym.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-log-prompts",
+                action="store_true",
+                default=True,
+                help="Whether to log prompts in PACEvolve gym.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-record",
+                action="store_true",
+                default=False,
+                help="Enable PACEvolve gym recorder.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-record-dir",
+                type=str,
+                default="./gym_output",
+                help="Directory for PACEvolve gym recorder outputs.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-seed",
+                type=int,
+                default=1234,
+                help="Random seed for PACEvolve gym.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-reward-process-type",
+                type=str,
+                default="original_reward",
+                choices=["original_reward", "improve_reward"],
+                help="Reward processing type for PACEvolve gym.",
+            )
+
+            # PACEvolve workflow parameters (mirror run_experiment.py args)
+            parser.add_argument(
+                "--pacevolve-gym-backtrack-freq",
+                type=int,
+                default=-1,
+                help="How often to perform backtracking (-1 disables).",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-backtrack-len",
+                type=int,
+                default=5,
+                help="How many iterations the agent backtracks.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-power-alpha",
+                type=float,
+                default=1.5,
+                help="Alpha exponent for power-law distribution in backtrack sampling.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-idea-cap",
+                type=int,
+                default=5,
+                help="Max number of ideas before triggering merge (-1 disables).",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-merge-freq",
+                type=int,
+                default=1,
+                help="Frequency of merge operations.",
+            )
+            parser.add_argument(
+                "--pacevolve-gym-summarize-freq",
+                type=int,
+                default=20,
+                help="Summarize idea experiment history every N experiments.",
+            )
+
             return parser
 
         # Add custom arguments in front to prevent overwritten some slime arguments.

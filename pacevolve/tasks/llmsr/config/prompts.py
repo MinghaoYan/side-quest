@@ -343,7 +343,23 @@ Experiment description: <Provide a concrete but concise description on the exper
 
 
 
-def construct_code_impl_prompt(sota_algorithm, idea_id, exp_description):
+def construct_code_impl_prompt(sota_algorithm, idea_id, exp_description, selected_idea_text=None):
+    """Build prompt for API model to implement the idea selected by the trained policy.
+
+    If selected_idea_text is provided (the hypothesis the trained policy chose), it is
+    included so the API model knows exactly what idea to implement.
+    """
+    idea_section = f"""Idea ID: {idea_id}
+Experiment description: {exp_description}"""
+    if selected_idea_text:
+        idea_section = f"""A research agent selected the following idea for you to implement:
+
+Selected idea:
+{selected_idea_text}
+
+Idea ID: {idea_id}
+Experiment description: {exp_description}"""
+
     prompt = f"""
 We are conducting an evolutionary optimization process for Acceleration in a Non-linear Harmonic Oscillator.
 
@@ -360,10 +376,10 @@ The current state-of-the-art algorithm is as follows:
 
 ## Your Task
 
-Your job is to implement the following idea:
+Your job is to implement the selected idea above.
 
-Idea ID: {idea_id}
-Experiment description: {exp_description}
+{idea_section}
+
 Once your brainstorming and idea generation process is finished, you are ready to write code. Please follow the guideline when completing the coding part:
 
 {CODING_REQ}

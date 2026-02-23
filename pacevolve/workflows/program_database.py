@@ -15,6 +15,7 @@
 """A programs database that implements a parallelized tournament selection evolutionary algorithm."""
 from collections.abc import Mapping, Sequence
 import dataclasses
+import threading
 from typing import Any
 import numpy as np
 import logging
@@ -53,6 +54,7 @@ class ProgramsDatabase:
   ) -> None:
     self._config: ProgramsDatabaseConfig = config
     self._function_to_evolve: str = function_to_evolve
+    self._lock = threading.Lock()
 
     if metric_direction == "max":
       self._reverse_sort = True
@@ -68,9 +70,16 @@ class ProgramsDatabase:
     
     This method is designed to be called by up to M parallel workers.
     """
-    island_id = np.random.randint(len(self._islands))
-    code, version_generated = self._islands[island_id].get_candidate()
-    return code, island_id
+    with self._lock:
+      island_id = np.random.randint(len(self._islands))
+      code, version_generated = self._islands[island_id].get_candidate()
+      return code, island_id
+
+  def get_candidate_for_island(self, island_id: int) -> tuple:
+    """Returns a parent candidate from a specific island (thread-safe)."""
+    with self._lock:
+      code, version_generated = self._islands[island_id].get_candidate()
+      return code, version_generated
 
   def register_program(
       self,
@@ -82,7 +91,27 @@ class ProgramsDatabase:
 
     This method is designed to be called by up to M parallel workers.
     """
-    self._islands[island_id].register_program(program, score)
+    with self._lock:
+      self._islands[island_id].register_program(program, score)
+
+  def get_best_program(self) -> tuple:
+    """Returns (score, code) of the best program across all islands."""
+    with self._lock:
+      best = None
+      for island in self._islands:
+        if island._candidates:
+          top = island._candidates[0]
+          if best is None or top[0] > best[0]:
+            best = top
+      return best if best else (None, None)
+
+  def get_best_program_for_island(self, island_id: int) -> tuple:
+    """Returns (score, code) of the best program in one island."""
+    with self._lock:
+      island = self._islands[island_id]
+      if not island._candidates:
+        return None, island._template
+      return island._candidates[0]
 
 
 class Island:

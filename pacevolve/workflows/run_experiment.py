@@ -196,6 +196,19 @@ if __name__ == "__main__":
     default=15,
     help="How many iterations to not trigger crossover sampling again."
   )
+  parser.add_argument(
+    "--parallel",
+    action="store_true",
+    default=False,
+    help="Enable true async multi-island parallel execution."
+  )
+  parser.add_argument(
+    "--num_workers",
+    type=int,
+    required=False,
+    default=4,
+    help="Number of parallel worker processes (used with --parallel)."
+  )
 
   args = parser.parse_args()
 
@@ -263,6 +276,25 @@ if __name__ == "__main__":
     idea_repo_db.idea_repos[temp_id].append(initial_repo)
 
   logger.info(f"Backtrack frequency is {args.backtrack_freq}, Back track length is {args.backtrack_len}, alpha for power law is {args.power_alpha}")
+
+  # --- Parallel mode dispatch ---
+  if args.parallel:
+    import parallel_runner, asyncio
+    logger.info(f"Running in PARALLEL mode with {args.num_workers} workers")
+    asyncio.run(parallel_runner.run_parallel_evolution(
+        config=config,
+        db=db,
+        idea_repo_db=idea_repo_db,
+        prompts_module=prompts,
+        args=args,
+        transcript_file=transcript_file,
+        project_root=project_root,
+        num_workers=args.num_workers,
+    ))
+    logger.info(f"Parallel evolution finished.")
+    sys.exit(0)
+
+  # --- Sequential mode (original) ---
   repo_idx_before_backtrack = 0
   backtrack_triggered_idx = -1
   for i in range(max_iters):
