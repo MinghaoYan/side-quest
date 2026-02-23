@@ -67,9 +67,12 @@ docker run --rm --name slime-evolve \
 
 sudo docker run -d --name slime-evolve   --gpus all --ipc=host --shm-size=16g   --ulimit memlock=-1 --ulimit stack=67108864   -v "$PWD":/workspace -w /workspace   slimerl/slime:v0.5.0rc0-cu126 sleep infinity
 
+
+sudo docker exec -it slime-evolve /bin/bash
+
 apt update
 apt install -y screen
-sudo docker exec -it slime-evolve /bin/bash
+
 bash ./run.sh 2>&1 | tee run.log
 ```
 

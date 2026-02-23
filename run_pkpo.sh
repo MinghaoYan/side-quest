@@ -21,7 +21,7 @@ IS_TRAINING=True
 
 #### Training parameters ####
 # Options: "original_reward", "rl_normalized_reward"
-REWARD_PROCESS_TYPE="original_reward"
+REWARD_PROCESS_TYPE="rl_normalized_reward"
 
 #### Lazy output penalty ####
 # 1 -> child = parent
@@ -162,6 +162,8 @@ echo "SAVE_PATH: ${SAVE_PATH}"
 echo "PKPO_K: ${PKPO_K}"
 echo "PKPO_ESTIMATOR_TYPE: ${PKPO_ESTIMATOR_TYPE}"
 echo "================================"
+
+mkdir -p "${SAVE_PATH}/${RUN_NAME}"
 
 # you can replace general.sh with general_debug.sh for debug mode
 # General script with configurable parameters

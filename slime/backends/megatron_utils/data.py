@@ -268,7 +268,7 @@ def log_rollout_data(rollout_id, args, rollout_data):
                 log_dict["rollout/prompt_lengths_min"] = prompt_lengths_tensor.min().item()
 
         for key, val in rollout_data.items():
-            if key == "tokens" or key == "loss_masks" or key == "sample_indices":
+            if key in ("tokens", "loss_masks", "sample_indices", "rollout_id"):
                 continue
             # Upload per sample mean for each rollout value
             # There are the following assumptions:

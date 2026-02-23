@@ -80,7 +80,7 @@ CKPT_ARGS=(
    --ref-load "${SAVE_SHM_DIR}/${MODEL_NAME}_torch_dist"
    --load "${CKPT_DIR}/"
    --save "${CKPT_DIR}/"
-   --save-interval 5
+   --save-interval 50
 )
 
 ROLLOUT_ARGS=(
@@ -102,13 +102,16 @@ ROLLOUT_ARGS=(
   --rm-type evolving-gym
   --reward-key reward
 
-  --num-rollout 1000000
-  --rollout-batch-size 32
-  --n-samples-per-prompt 16
+  --num-rollout 10000000
+  # --rollout-batch-size 32
+  # --n-samples-per-prompt 16
+  --rollout-batch-size 2
+  --n-samples-per-prompt 8
   --rollout-max-response-len 16384
   --rollout-temperature 1.0
 
-  --over-sampling-batch-size 32
+  --over-sampling-batch-size 2
+  # --over-sampling-batch-size 1
   # --dynamic-sampling-filter-path slime.rollout.filter_hub.dynamic_sampling_filters.check_reward_nonzero_std
   --partial-rollout
 
@@ -147,7 +150,6 @@ PKPO_ARGS=(
   --advantage-estimator pkpo
   --pkpo-k ${PKPO_K:-4}
   --pkpo-estimator-type ${PKPO_ESTIMATOR_TYPE:-sloo_minus_one}
-  --entropy-coef 0.01
   --eps-clip 0.2
   --eps-clip-high 0.28
 
@@ -181,9 +183,10 @@ OPTIMIZER_ARGS=(
 # )
 
 SGLANG_ARGS=(
+  --num-gpus-per-node 16
   --rollout-num-gpus-per-engine 8
-  --sglang-mem-fraction-static 0.5
-   --sglang-cuda-graph-bs 1 2 4 8 $(seq 16 8 256) # increase throughput
+  --sglang-mem-fraction-static 0.4
+  --sglang-cuda-graph-bs 1 2 4 8 $(seq 16 8 256) # increase throughput
 )
 
 MISC_ARGS=(

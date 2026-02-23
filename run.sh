@@ -4,11 +4,11 @@
 ########################### CONFIGURATION SECTION - EDIT THESE VARIABLES #############################
 
 #### Important: replace SAVE_PATH with your path with enough space ####
-export SAVE_PATH=/path/to/disk
+export SAVE_PATH="/workspace/logs"
 
 #### Model selection ####
-SMALL_MODEL_NAME="dpsk_prorl_v2_1.5b"
-# SMALL_MODEL_NAME="dpsk_distill_qwen3_8b"
+# SMALL_MODEL_NAME="dpsk_prorl_v2_1.5b"
+SMALL_MODEL_NAME="dpsk_distill_qwen3_8b"
 
 #### Task configuration ####
 # TASK="hadamard_matrix"
@@ -159,6 +159,8 @@ echo "EVALUATOR_FILE: ${EVALUATOR_FILE}"
 echo "CONFIG_YAML: ${CONFIG_YAML}"
 echo "SAVE_PATH: ${SAVE_PATH}"
 echo "================================"
+
+mkdir -p "${SAVE_PATH}/${RUN_NAME}"
 
 # you can replace general.sh with general_debug.sh for debug mode
 # General script with configurable parameters

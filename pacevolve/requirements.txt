@@ -1,0 +1,4 @@
+dataclasses
+pyyaml
+numpy
+tiktoken

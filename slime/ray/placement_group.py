@@ -116,7 +116,7 @@ def allocate_train_group(args, num_nodes, num_gpus_per_node, pg, wandb_run_id):
         num_gpus_per_node=num_gpus_per_node,
         pg=pg,
         wandb_run_id=wandb_run_id,
-        num_gpus_per_actor=0.4,
+        num_gpus_per_actor=0.4 if args.colocate else 1,
     )
 
 
