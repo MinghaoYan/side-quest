@@ -80,7 +80,7 @@ CKPT_ARGS=(
    --ref-load "${SAVE_SHM_DIR}/${MODEL_NAME}_torch_dist"
    --load "${CKPT_DIR}/"
    --save "${CKPT_DIR}/"
-   --save-interval 50
+   --save-interval 100
 )
 
 ROLLOUT_ARGS=(
@@ -105,7 +105,7 @@ ROLLOUT_ARGS=(
   --num-rollout 10000000
   # --rollout-batch-size 32
   # --n-samples-per-prompt 16
-  --rollout-batch-size 2
+  --rollout-batch-size 1
   --n-samples-per-prompt 8
   --rollout-max-response-len 16384
   --rollout-temperature 1.0

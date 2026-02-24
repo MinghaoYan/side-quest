@@ -28,17 +28,18 @@ experiment:
   initial_baseline_id: -1
   num_cpu_cores: 32
 
+
 paths:
   # Using ~ for home directory is supported.
-  data_path: "~/auto_evo/tasks/kernel_bench/data"
-  src_path: "~/auto_evo/tasks/kernel_bench/src"
-  eval_path: "~/auto_evo/tasks/kernel_bench/eval"
-  results_path: "~/auto_evo/tasks/kernel_bench/results"
+  data_path: "/workspace/pacevolve/tasks/kernel_bench/data"
+  src_path: "/workspace/pacevolve/tasks/kernel_bench/src"
+  eval_path: "/workspace/pacevolve/tasks/kernel_bench/eval"
+  results_path: "/workspace/pacevolve/tasks/kernel_bench/results"
   target_file_path: "kernels/BatchNorm/kernel.py"
   # pip_path: "python-bindings"
   # Log and transcript directories will be created if they don't exist.
-  log_dir: "~/auto_evo/tasks/kernel_bench/verbose"
-  transcript_dir: "~/auto_evo/tasks/kernel_bench/transcripts"
+  log_dir: "/workspace/pacevolve/tasks/kernel_bench/verbose"
+  transcript_dir: "/workspace/pacevolve/tasks/kernel_bench/transcripts"
   
 
 compilation:
@@ -51,7 +52,7 @@ compilation:
 evaluation:
   eval_timeout: 1800
   eval_max_retries: 1
-  eval_script_name: "eval_auto_evo.py"
+  eval_script_name: "eval_kb.py"
   kernel_name: "BatchNorm"
   baseline_time: 0.851
   target_score: 3

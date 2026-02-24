@@ -296,9 +296,10 @@ async def generate_rollout_async(
             - aborted samples collected during partial rollout
     """
     assert (
-        (args.rollout_global_dataset and not args.evolving_gym)
-        or (not args.rollout_global_dataset and args.evolving_gym)
-    ), "Exactly one of global_dataset / evolving_gym must be enabled."
+        (args.rollout_global_dataset and not args.evolving_gym and not getattr(args, "pacevolve_gym", False))
+        or (not args.rollout_global_dataset and args.evolving_gym and not getattr(args, "pacevolve_gym", False))
+        or (not args.rollout_global_dataset and getattr(args, "pacevolve_gym", False) and not args.evolving_gym)
+    ), "Exactly one of global_dataset / evolving_gym / pacevolve_gym must be enabled."
 
 
     state = GenerateState(args)
@@ -585,9 +586,10 @@ def generate_abortable_samples(
 ) -> tuple[Any, list[list[Sample]]]:
     # assert args.rollout_global_dataset
     assert (
-        (args.rollout_global_dataset and not args.evolving_gym)
-        or (not args.rollout_global_dataset and args.evolving_gym)
-    ), "Exactly one of global_dataset / evolving_gym must be enabled."
+        (args.rollout_global_dataset and not args.evolving_gym and not getattr(args, "pacevolve_gym", False))
+        or (not args.rollout_global_dataset and args.evolving_gym and not getattr(args, "pacevolve_gym", False))
+        or (not args.rollout_global_dataset and getattr(args, "pacevolve_gym", False) and not args.evolving_gym)
+    ), "Exactly one of global_dataset / evolving_gym / pacevolve_gym must be enabled."
     if evaluation:
         return run(eval_rollout(args, rollout_id))
     return run(generate_rollout_async(args, rollout_id, data_source, data_buffer=data_buffer))

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from workflows.tournament_prompts import PROPOSAL_WRITING_PROMPT
 LLMSR = '''
     def equation(self, x: np.ndarray, t: np.ndarray, v: np.ndarray, params: np.ndarray) -> np.ndarray:
         """ Mathematical function for Acceleration in Non-linear Harmonic Oscillator
@@ -388,55 +387,6 @@ Once your brainstorming and idea generation process is finished, you are ready t
 """
     return prompt
 
-
-
-
-def construct_idea_tournament_prompt(sota_algorithm, idea_repo):
-    prompt = f"""
-We are conducting an evolutionary optimization process for Acceleration in a Non-linear Harmonic Oscillator.
-
-{BACKGROUND}
-
-{RJCH_DOCS}
-
-### Current state-of-the-art
-The current state-of-the-art algorithm is as follows:
-```python
-{sota_algorithm}
-```
-
-
-### Idea Repo
-Idea repos contain ideas that we have generated so far, and experiments we have run to test these hypotheses.
-
-{idea_repo}
-
-## Your Task
-
-You job is to come up with an experiment to test one of the ideas in the idea repo. Think about an experiment to run that you think will stand the best shot of helping you to accomplish your overall goal (to discover a good candidate at some point during your search).
-
-Please avoid propose experiments that you have already tested - the results will almost certainly be the same and this will waste computational resources.
-
-Go through each idea's experiment history carefully to understand how well it has been tested.
-
-# Final Instructions
-
-You should try to understand why a particular design performed well / poorly, so that you can make a more informed choice for the next set of experiments. 
-
-You are encouraged to consider configurations that we might not have experimented with before, and it is likely that you will discover some patterns during your search process. You are encouraged to look through your experiment history and refer back to the designs that we have already tested, to make sure that the design you select makes sense in that broader research context (i.e., are not too similar, and are informed by past results). If an idea has seen rich experiment history but the performance has plateaued, then perhaps it's time to switch to a new idea.
-
-Feel free to think outside of the box - you are allowed to select candidates that are high risk (or even expected to be quality-negative) if it helps you understand the problem better, furthers your long-term research agenda, and (most importantly) increases your chance to produce a final candidate. The goal is to produce a final candidate after roughly 500 attempts, not to find a locally-optimal solution right away. 
-
-Go through the idea history carefully, DO NOT propose an experiment that has been tried before in the idea repo (the results will almost certainly be the same), and please do your best to deliver a good candidate by the end of your 500 attempts. We will take the best candidate discovered in your entire tuning process as your final candidate - it does not matter WHEN you find a good candidate, as long as you eventually do so.
-
-You should balance the exploration vs exploitation tradeoff when you selct your ideas.
-
-Once your brainstorming and idea generation process is finished, now consider your self as a Principal Investigator (PI) within a larger autonomous research agent.
-
-{PROPOSAL_WRITING_PROMPT}
-
-"""
-    return prompt
 
 
 def construct_gen_hypothesis_prompt(sota_algorithm, idea_repo, idea):
