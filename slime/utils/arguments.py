@@ -1287,17 +1287,18 @@ def slime_validate_args(args):
         args.no_load_optim = True
         args.no_load_rng = True
         args.finetune = True
-        # For evolving_gym with debug_rollout_only (inference-only mode),
+        # For evolving_gym / pacevolve_gym with debug_rollout_only (inference-only mode),
         # preserve the original load directory for database checkpoint detection
         is_evolving_gym = getattr(args, "evolving_gym", False)
+        is_pacevolve_gym = getattr(args, "pacevolve_gym", False)
         is_inference_only = getattr(args, "debug_rollout_only", False)
-        should_preserve_load = is_evolving_gym and is_inference_only
+        should_preserve_load = (is_evolving_gym or is_pacevolve_gym) and is_inference_only
 
         if not should_preserve_load:
-            print(f"[ARGS] No valid training checkpoint, using ref_load for model initialization (evolving_gym={is_evolving_gym}, debug_rollout_only={is_inference_only})")
+            print(f"[ARGS] No valid training checkpoint, using ref_load for model initialization (evolving_gym={is_evolving_gym}, pacevolve_gym={is_pacevolve_gym}, debug_rollout_only={is_inference_only})")
             args.load = args.ref_load
         else:
-            print(f"[ARGS] Preserving args.load={args.load} for evolving_gym database checkpoint detection (inference-only mode)")
+            print(f"[ARGS] Preserving args.load={args.load} for gym database checkpoint detection (inference-only mode)")
 
         if args.ref_ckpt_step is not None:
             args.ckpt_step = args.ref_ckpt_step

@@ -103,6 +103,13 @@ class PACEvolveDatabase:
         with self._temp_lock:
             return len(self.temp_programs)
 
+    def update_database_from_temp(self, verbose: bool = True):
+        """SLIME-compatible alias: flush temp cache to main database."""
+        n_before = len(self.temp_programs)
+        self.flush_temp_to_db()
+        if verbose and n_before > 0:
+            logger.info(f"[PACEvolve] Flushed {n_before} temp programs to database")
+
     def flush_temp_to_db(self):
         """Move temp programs into the real ProgramsDatabase."""
         with self._temp_lock:

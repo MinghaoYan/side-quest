@@ -69,6 +69,11 @@ class RolloutManager:
         return self.rollout_engines, self.rollout_engine_lock, self.num_new_engines
 
     def get_num_rollout_per_epoch(self):
+        if getattr(self.args, "pacevolve_gym", False) or getattr(self.args, "evolving_gym", False):
+            raise ValueError(
+                "get_num_rollout_per_epoch is only for rollout_global_dataset. "
+                "Set --num-rollout explicitly when using --pacevolve-gym or --evolving-gym."
+            )
         assert self.args.rollout_global_dataset
         return len(self.data_source.dataset) // self.args.rollout_batch_size
 

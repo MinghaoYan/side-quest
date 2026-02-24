@@ -50,10 +50,10 @@ def train(args):
                 critic_model.save_model(rollout_id)
             if args.rollout_global_dataset:
                 ray.get(rollout_manager.save.remote(rollout_id))
-            elif args.evolving_gym:
+            elif args.evolving_gym or getattr(args, "pacevolve_gym", False):
                 ray.get(rollout_manager.save.remote(rollout_id))
             else:
-                assert False, "None of args.rollout_global_dataset, args.evolving_gym is set."
+                assert False, "None of args.rollout_global_dataset, args.evolving_gym, args.pacevolve_gym is set."
 
         if (rollout_id + 1) % args.update_weights_interval == 0:
             # sync generate before update weights to prevent update weight in the middle of generation

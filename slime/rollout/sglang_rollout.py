@@ -444,6 +444,47 @@ async def generate_rollout_async(
                 import traceback
                 print(f"[EvolvingGym Recorder] record failed at rollout {rollout_id}: {e}", flush=True)
                 print(f"[EvolvingGym Recorder] Full traceback: {traceback.format_exc()}", flush=True)
+    elif getattr(args, "pacevolve_gym", False):
+        assert args.rm_type == "pacevolve-gym", (
+            f"pacevolve_gym is only supported for pacevolve-gym, got {args.rm_type}"
+        )
+        assert data_buffer is not None, "data_buffer must be provided for pacevolve_gym"
+        assert hasattr(data_buffer, "pacevolve_gym_manager"), "data_source must have pacevolve_gym_manager attribute"
+        gym = data_buffer.pacevolve_gym_manager.gym
+        assert gym is not None, "gym must be provided for pacevolve_gym"
+
+        # Update database from temp cache (same role as evolving_gym path)
+        gym.database.update_database_from_temp(verbose=True)
+        print(f"[SUCCESS] Rollout {rollout_id} PACEvolve database update")
+
+        # Recording (optional, independent of database update)
+        if getattr(args, "pacevolve_gym_record", False) and gym.recording_enabled:
+            try:
+                reward_key = getattr(args, "reward_key", "reward")
+                flat = []
+                for group in data:
+                    for s in group:
+                        r = s.reward
+                        if isinstance(r, dict):
+                            r = r.get(reward_key, 0.0)
+                        if not isinstance(r, (int, float)):
+                            r = 0.0
+                        flat.append(float(r))
+                total = len(flat)
+                avg_reward = (sum(flat) / total) if total > 0 else 0.0
+                success_rate = (sum(1 for x in flat if x > 0.0) / total) if total > 0 else 0.0
+
+                step_metrics = {
+                    "rollout_id": rollout_id,
+                    "batch_operations": args.rollout_batch_size * args.n_samples_per_prompt,
+                    "avg_reward": avg_reward,
+                    "success_rate": success_rate,
+                }
+                gym.record_progress(training_step=rollout_id, step_metrics=step_metrics)
+            except Exception as e:
+                import traceback
+                print(f"[PACEvolveGym Recorder] record failed at rollout {rollout_id}: {e}", flush=True)
+                print(f"[PACEvolveGym Recorder] Full traceback: {traceback.format_exc()}", flush=True)
 
     # reset the global state to prevent effects on the next rollout or eval.
     state.reset()
