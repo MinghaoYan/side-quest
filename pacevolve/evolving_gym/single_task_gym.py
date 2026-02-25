@@ -532,7 +532,10 @@ Policy output:
 
         data = self._extract_json_object(normalized_text or "")
         if not isinstance(data, dict):
-            logger.warning("[policy-normalization] failed to parse JSON from normalization output")
+            logger.warning(
+                "[policy-normalization] failed to parse JSON from normalization output; response_snippet=%r",
+                (normalized_text or "")[:600],
+            )
             return [], None, None
 
         hypotheses, selected_num, exp_description = _parse_payload(data)
@@ -576,9 +579,18 @@ Original policy output:
                 hypotheses, selected_num, exp_description = _parse_payload(completion_data)
                 logger.info("[policy-normalization] completed to %d/3 ideas", len(hypotheses))
             else:
-                logger.warning("[policy-normalization] completion step returned non-JSON output")
+                logger.warning(
+                    "[policy-normalization] completion step returned non-JSON output; response_snippet=%r",
+                    (completion_text or "")[:600],
+                )
 
         if len(hypotheses) < 3:
+            logger.warning(
+                "[policy-normalization] final idea count still <3; count=%d selected=%s exp_desc_present=%s",
+                len(hypotheses),
+                selected_num,
+                bool(exp_description),
+            )
             return [], None, None
 
         return hypotheses, selected_num, exp_description
@@ -812,12 +824,19 @@ Original policy output:
 
             if not hypotheses:
                 logger.warning("Trained policy produced no parseable hypotheses.")
+                logger.warning("Raw policy response snippet (no_hypotheses): %r", (response or "")[:1200])
                 self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
                                          repo_idx_before_backtrack, trigger_merge, append=False)
                 return self._make_error_result(parent_program, "no_hypotheses", t0=t0)
 
             if selected_num is None or exp_description is None:
                 logger.warning("Trained policy did not produce a valid idea selection.")
+                logger.warning(
+                    "Selection parse details: selected_num=%s exp_description_present=%s response_snippet=%r",
+                    selected_num,
+                    bool(exp_description),
+                    (response or "")[:1200],
+                )
                 self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
                                          repo_idx_before_backtrack, trigger_merge, append=False)
                 return self._make_error_result(parent_program, "no_selection", t0=t0)
