@@ -20,7 +20,7 @@ KERNEL_CONFIG_ID=1
 IS_TRAINING=True
 
 #### Training parameters ####
-REWARD_PROCESS_TYPE="original_reward"
+REWARD_PROCESS_TYPE="rl_normalized_reward"
 
 #### Random seed ####
 SEED=3407

@@ -15,7 +15,7 @@
 # Configuration for the KNN experiment workflow.
 
 llm:
-  name: "gemini-2.5-pro"
+  name: "gemini-3.1-pro-preview"
   context_size: 120000
   safety_margin: 600
   max_try_count: 5

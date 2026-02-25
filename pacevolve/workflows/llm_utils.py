@@ -155,7 +155,7 @@ if OPENAI_AVAILABLE:
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": generation_config.get("temperature", 1.0),
                 "top_p": generation_config.get("top_p", 0.95),
-                "max_tokens": generation_config.get("max_output_tokens", 4096)
+                "max_tokens": generation_config.get("max_output_tokens", 163840)
             }
             response = self.client.chat.completions.create(**params)
             return response.choices[0].message.content
@@ -187,7 +187,7 @@ if ANTHROPIC_AVAILABLE:
         def generate(self, prompt: str, generation_config: Dict[str, Any]) -> str:
             response = self.client.messages.create(
                 model=self.model_name,
-                max_tokens=generation_config.get("max_output_tokens", 4096),
+                max_tokens=generation_config.get("max_output_tokens", 163840),
                 temperature=generation_config.get("temperature", 1.0),
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -266,7 +266,7 @@ def generate_completion(
     generation_config = {
         "temperature": llm_config.get("temperature", 1.0),
         "top_p": llm_config.get("top_p", 0.95),
-        "max_output_tokens": llm_config.get("max_output_tokens", 4096)
+        "max_output_tokens": llm_config.get("max_output_tokens", 163840)
     }
 
     # 5. Execution with Retry
