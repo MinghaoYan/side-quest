@@ -22,6 +22,12 @@ IS_TRAINING=True
 #### Training parameters ####
 REWARD_PROCESS_TYPE="rl_normalized_reward"
 
+#### PKPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
+export PKPO_K=4
+export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
+# export PKPO_K_ANNEAL_STEP=200
+# export PKPO_K_ANNEAL_TARGET=1
+
 #### Random seed ####
 SEED=3407
 
@@ -34,7 +40,11 @@ export PACEVOLVE_MERGE_FREQ=1
 export PACEVOLVE_SUMMARIZE_FREQ=20
 
 #### Additional note for file names ####
-NOTE=""
+NOTE="_pkpo"
+
+#### API key for PACEvolve gym's API model (Gemini/OpenAI/Anthropic) ####
+# Export before running if using cloud API for classification/implementation:
+# export GOOGLE_API_KEY="your_gemini_key"
 
 #### Replace with your own wandb settings ####
 WANDB_API_KEY=aaa
@@ -130,6 +140,8 @@ echo "KERNEL_NAME:  ${KERNEL_NAME}"
 echo "CONFIG_YAML:  ${CONFIG_YAML}"
 echo "SAVE_PATH:    ${SAVE_PATH}"
 echo "SEED:         ${SEED}"
+echo "PKPO_K:       ${PKPO_K}"
+echo "PKPO_ESTIMATOR_TYPE: ${PKPO_ESTIMATOR_TYPE}"
 echo "==============================================="
 
 mkdir -p "${SAVE_PATH}/${RUN_NAME}"
