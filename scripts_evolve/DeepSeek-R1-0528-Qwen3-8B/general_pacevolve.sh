@@ -81,7 +81,7 @@ PACEVOLVE_ROLLOUT_ARGS=(
   --disable-rollout-global-dataset
   --pacevolve-gym
   --pacevolve-gym-config-path "${CONFIG_YAML}"
-  --pacevolve-gym-max-concurrent-evals 1
+  --pacevolve-gym-max-concurrent-evals ${PACEVOLVE_MAX_CONCURRENT_EVALS:-1}
   --pacevolve-gym-log-prompts
   --pacevolve-gym-record
   --pacevolve-gym-record-dir "${RECORD_PATH}"
@@ -108,16 +108,16 @@ ROLLOUT_ARGS=(
   --rm-type pacevolve-gym
   --reward-key reward
 
-  --num-rollout 10000000
-  --rollout-batch-size 1
-  --n-samples-per-prompt 8
-  --rollout-max-response-len 16384
-  --rollout-temperature 1.0
+  --num-rollout ${PACEVOLVE_NUM_ROLLOUT:-10000000}
+  --rollout-batch-size ${PACEVOLVE_ROLLOUT_BATCH_SIZE:-1}
+  --n-samples-per-prompt ${PACEVOLVE_N_SAMPLES_PER_PROMPT:-8}
+  --rollout-max-response-len ${PACEVOLVE_ROLLOUT_MAX_RESPONSE_LEN:-16384}
+  --rollout-temperature ${PACEVOLVE_ROLLOUT_TEMPERATURE:-1.0}
 
-  --over-sampling-batch-size 1
+  --over-sampling-batch-size ${PACEVOLVE_OVER_SAMPLING_BATCH_SIZE:-1}
   --partial-rollout
 
-  --num-steps-per-rollout 1
+  --num-steps-per-rollout ${PACEVOLVE_NUM_STEPS_PER_ROLLOUT:-1}
   --wandb-always-use-train-step
   --balance-data
 )
