@@ -45,6 +45,7 @@ class PACEvolveGymManager:
             idea_cap=getattr(args, "pacevolve_gym_idea_cap", 5),
             merge_freq=getattr(args, "pacevolve_gym_merge_freq", 1),
             summarize_freq=getattr(args, "pacevolve_gym_summarize_freq", 20),
+            n_samples_per_prompt=getattr(args, "n_samples_per_prompt", 1),
         )
 
         if getattr(self.args, "pacevolve_gym_record", False):

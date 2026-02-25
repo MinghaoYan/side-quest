@@ -190,6 +190,7 @@ class PACEvolveSingleTaskGym:
         reward_process_type: str = "original_reward",
         seed: Optional[int] = None,
         log_prompts: bool = True,
+        n_samples_per_prompt: int = 1,
         **kwargs,
     ):
         with open(config_path, "r") as f:
@@ -275,7 +276,8 @@ class PACEvolveSingleTaskGym:
         self._eval_semaphore = asyncio.Semaphore(max_concurrent_evaluations)
         self._generation_counter = 0
         self._lock = threading.Lock()
-        self._pending_context: Dict[str, Dict[str, Any]] = {}
+        self._pending_context: Dict[str, List[Dict[str, Any]]] = {}  # list of context copies per parent
+        self._n_samples_per_prompt = n_samples_per_prompt
         self._ablation_list: List[str] = []
 
         # PACEvolve workflow parameters (mirror run_experiment.py args)
@@ -490,14 +492,17 @@ class PACEvolveSingleTaskGym:
             generation=gen,
         )
 
+        context = {
+            "island_id": island_id,
+            "idea_repo": deepcopy(new_idea_repo),
+            "trigger_merge": trigger_merge,
+            "last_bt_iter": last_bt_iter,
+            "repo_idx_before_backtrack": self._repo_idx_before_backtrack.get(island_id, 0),
+        }
         with self._lock:
-            self._pending_context[parent_id] = {
-                "island_id": island_id,
-                "idea_repo": deepcopy(new_idea_repo),
-                "trigger_merge": trigger_merge,
-                "last_bt_iter": last_bt_iter,
-                "repo_idx_before_backtrack": self._repo_idx_before_backtrack.get(island_id, 0),
-            }
+            self._pending_context[parent_id] = [
+                deepcopy(context) for _ in range(self._n_samples_per_prompt)
+            ]
 
         prompt_dict = {
             "system": "",
@@ -564,9 +569,15 @@ class PACEvolveSingleTaskGym:
             ContentChunk = llm_utils.ContentChunk
             AlgorithmTrial = workflow_utils.AlgorithmTrial
 
-            # Retrieve pending context stored by problem_generator
+            # Retrieve pending context stored by problem_generator (one copy per sample)
             with self._lock:
-                pending = self._pending_context.pop(parent_program.id, None)
+                stack = self._pending_context.get(parent_program.id)
+                if stack:
+                    pending = stack.pop()
+                    if not stack:
+                        del self._pending_context[parent_program.id]
+                else:
+                    pending = None
             if pending is None:
                 logger.error("No pending context for parent_program %s", parent_program.id)
                 return self._make_error_result(parent_program, "no_pending_context", t0=t0)
