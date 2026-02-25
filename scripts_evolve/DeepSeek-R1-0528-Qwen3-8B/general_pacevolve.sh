@@ -114,7 +114,7 @@ ROLLOUT_ARGS=(
   --rollout-max-response-len ${PACEVOLVE_ROLLOUT_MAX_RESPONSE_LEN:-16384}
   --rollout-temperature ${PACEVOLVE_ROLLOUT_TEMPERATURE:-1.0}
 
-  --over-sampling-batch-size ${PACEVOLVE_OVER_SAMPLING_BATCH_SIZE:-1}
+  --over-sampling-batch-size ${PACEVOLVE_OVER_SAMPLING_BATCH_SIZE:-${PACEVOLVE_ROLLOUT_BATCH_SIZE:-1}}
   --partial-rollout
 
   --num-steps-per-rollout ${PACEVOLVE_NUM_STEPS_PER_ROLLOUT:-1}

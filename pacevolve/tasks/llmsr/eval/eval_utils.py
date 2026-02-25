@@ -36,9 +36,9 @@ def recompile_library(config: dict) -> CompletedProcess:
     CANDIDATE_SCRIPT = os.path.join(
       TARGET_PATH, config['paths']['target_file_path']
     )
-    CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
+    # CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
     command = (
-      f"{CONDA_PREFIX} python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} --data_path {config['paths']['data_path']} --problem_idx {config['evaluation']['problem_idx']}"
+      f"python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} --data_path {config['paths']['data_path']} --problem_idx {config['evaluation']['problem_idx']}"
     )
     logger.info(f"recompile_library: Running command: {command}")
     process_result = _call_shell_command(
@@ -83,12 +83,12 @@ def evaluate_dataset(
     TARGET_PATH, config['paths']['target_file_path']
   )
   # BASELINE_DIFF_SCRIPT = os.path.join(EVAL_PATH, config['evaluation']['baseline_diff_script_name'])
-  CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
+  # CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
   results_dir = os.path.join(RESULTS_PATH, eval_config.dataset)
   output_file = os.path.join(results_dir, f"candidate_{candidate_id}.pickle")
 
   eval_command = (
-    f"{CONDA_PREFIX} python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} --data_path {config['paths']['data_path']} --problem_idx {config['evaluation']['problem_idx']}"
+    f"python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} --data_path {config['paths']['data_path']} --problem_idx {config['evaluation']['problem_idx']}"
   )
 
   try:

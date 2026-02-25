@@ -31,15 +31,15 @@ experiment:
 
 paths:
   # Using ~ for home directory is supported.
-  data_path: "~/auto_evo/tasks/llmsr/data"
-  src_path: "~/auto_evo/tasks/llmsr/src"
-  eval_path: "~/auto_evo/tasks/llmsr/eval"
-  results_path: "~/auto_evo/tasks/llmsr/results"
+  data_path: "/workspace/pacevolve/tasks/llmsr/data"
+  src_path: "/workspace/pacevolve/tasks/llmsr/src"
+  eval_path: "/workspace/pacevolve/tasks/llmsr/eval"
+  results_path: "/workspace/pacevolve/tasks/llmsr/results"
   target_file_path: "llmsr_1.py"
   # pip_path: "python-bindings"
   # Log and transcript directories will be created if they don't exist.
-  log_dir: "~/auto_evo/tasks/llmsr/verbose"
-  transcript_dir: "~/auto_evo/tasks/llmsr/transcripts"
+  log_dir: "/workspace/pacevolve/tasks/llmsr/verbose"
+  transcript_dir: "/workspace/pacevolve/tasks/llmsr/transcripts"
 
 compilation:
   conda_env: "llmsrbench"
@@ -56,7 +56,7 @@ evaluation:
   max_parallel_evals: 5
   problem_idx: 0
   target_score: -10
-  init_score: -2
+  init_score: 0
   metric_direction: "min"
   eval_configs:
     - dataset: "simulation"

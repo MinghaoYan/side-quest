@@ -90,26 +90,70 @@ class LLMSR():
 
     # RegexTagCustomPruningAlgorithmStart
     def equation(self, x: np.ndarray, t: np.ndarray, v: np.ndarray, params: np.ndarray) -> np.ndarray:
-        """ Mathematical function for Acceleration in Non-linear Harmonic Oscillator
+        """
+        Mathematical function for Acceleration in a Non-linear Harmonic Oscillator.
+
+        This model improves upon a polynomial-based approach by incorporating a
+        generalized power-law damping term. This provides greater flexibility in
+        capturing a wide range of dissipative behaviors, where the damping
+        force is proportional to a variable power of velocity. To ensure numerical
+        stability, the exponent of the power law is clipped, and calculations
+        handle zero-velocity conditions carefully to avoid division by zero.
 
         Args:
             x: A numpy array representing observations of Position at time t.
-            t: A numpy array representing observations of Time.
+            t: A numpy array representing observations of Time. (unused)
             v: A numpy array representing observations of Velocity at time t.
-            params: Array of numeric constants or parameters to be optimized
+            params: Array of 10 numeric constants or parameters to be optimized.
 
         Return:
-            A numpy array representing Acceleration in Non-linear Harmonic Oscillator as the result of applying the mathematical function to the inputs.
+            A numpy array representing Acceleration as the result of applying
+            the mathematical function to the inputs.
         """
-        restoring_force = params[0] * x + params[1] * x**3 + params[2] * x**5
-
-        damping_force = params[3] * v + params[4] * v**3
-
-        driving_force = params[5] * np.cos(t) + params[6] * np.sin(t)
         
-        parametric_force = (params[7] * x + params[8] * x**3 + params[9] * x**5) * np.cos(2 * t)
+        # Polynomial restoring force captures non-linear spring-like behavior.
+        # params[0]: Constant offset or external force
+        # params[1]*x: Linear restoring force (Hooke's Law)
+        # params[2]*x**2: Quadratic restoring force
+        # params[3]*x**3: Cubic restoring force (e.g., Duffing oscillator)
+        restoring_force = (params[0] +
+                           params[1] * x +
+                           params[2] * x**2 +
+                           params[3] * x**3)
+        
+        # Damping and interaction terms.
+        # params[4]*v: Standard linear damping
+        # params[6]*x*v, params[7]*x**2*v: Position-dependent damping terms
+        damping_and_interaction = (params[4] * v +
+                                   params[6] * x * v +
+                                   params[7] * (x**2) * v)
+        
+        # Generalized power-law damping term.
+        # To prevent numerical instability (overflow or division by zero), we
+        # constrain the exponent `params[8]` to a reasonable range.
+        exponent = np.clip(params[8], -5.0, 5.0)
 
-        output = restoring_force + damping_force + driving_force + parametric_force
+        # We calculate the power term safely. We initialize the term with zeros
+        # and then compute the power only for non-zero velocities. This avoids
+        # the case of 0 raised to a negative power, which would result in 'inf'.
+        power_v = np.zeros_like(v, dtype=np.float64)
+        non_zero_v_mask = (v != 0)
+        
+        # Only apply power to non-zero elements of v
+        abs_v_non_zero = np.abs(v[non_zero_v_mask])
+        power_v[non_zero_v_mask] = np.power(abs_v_non_zero, exponent)
+
+        # The full generalized damping term. np.sign(v) correctly handles the
+        # direction and ensures the force is zero when velocity is zero.
+        generalized_damping = params[5] * np.sign(v) * power_v
+
+        # A sinusoidal restoring force term is included to capture periodic
+        # potential wells or other oscillating components in the restoring force.
+        # params[9]: Amplitude of the sinusoidal restoring force.
+        periodic_restoring_force = params[9] * np.sin(x)
+
+        # The final acceleration is the sum of all force components.
+        output = restoring_force + damping_and_interaction + generalized_damping + periodic_restoring_force
 
         return output
     # RegexTagCustomPruningAlgorithmEnd
