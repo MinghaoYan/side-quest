@@ -53,11 +53,14 @@ def _summarize_compile_error(process: CompletedProcess, config: dict) -> str:
 
   indices_with_errors = [i for i, line in enumerate(lines) if "error:" in line.lower()]
 
-  if not indices_with_errors and process.stderr.strip():
+  if not indices_with_errors and lines:
     max_lines_fallback = 40
     fallback_summary = "\n".join(lines[-max_lines_fallback:])
-    error_description = f"No specific 'error:' lines found. Showing last {max_lines_fallback} lines of output:\n{fallback_summary}"
-  elif not indices_with_errors and not process.stderr.strip():
+    error_description = (
+      "No specific 'error:' lines found. "
+      f"Showing last {max_lines_fallback} lines of output:\n{fallback_summary}"
+    )
+  elif not indices_with_errors and not lines:
     error_description = "Compilation failed, but no stderr/stdout output was captured or it was empty."
   else:
     line_indices_to_include = set()
@@ -86,6 +89,22 @@ def _summarize_compile_error(process: CompletedProcess, config: dict) -> str:
   return error_description
 
 
+def _classify_compile_failure(process: CompletedProcess) -> str:
+  """
+  Classify kernel-bench compile-stage failure reason from eval script output.
+  Note: this stage can include build + correctness checks.
+  """
+  text = (process.stdout or "") + "\n" + (process.stderr or "")
+  lower = text.lower()
+  if "incorrect kernel" in lower or "output mismatch" in lower or "correctness" in lower:
+    return "correctness_failure"
+  if "lack of output" in lower or "failed to complete" in lower:
+    return "no_output_or_process_failure"
+  if "compilation or critical failure" in lower or "compile" in lower:
+    return "build_or_runtime_failure"
+  return "unknown_failure"
+
+
 def attempt_compile(
   trial: AlgorithmTrial,
   compile_config: CompilationConfig,
@@ -111,6 +130,21 @@ def attempt_compile(
 
   output_message = "Code compiled successfully."
   if not success:
+    failure_type = _classify_compile_failure(compile_output)
+    # Force key diagnostics into Ray stdout so users can grep train_log.txt directly.
+    print(
+      f"[compile-stage] failed returncode={compile_output.returncode} failure_type={failure_type}",
+      flush=True,
+    )
+    preview_lines = (
+      compile_output.stdout.splitlines() + compile_output.stderr.splitlines()
+    )
+    if preview_lines:
+      print("[compile-stage] output-preview-begin", flush=True)
+      for ln in preview_lines[-30:]:
+        print(f"[compile-stage] {ln}", flush=True)
+      print("[compile-stage] output-preview-end", flush=True)
+
     error_description = _summarize_compile_error(compile_output, config)
     output_message = (
       f"The code provided did not compile. Compiler output (summarized):\n{error_description}\n"
