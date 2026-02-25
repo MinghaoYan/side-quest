@@ -11,7 +11,7 @@ if [ $# -lt 7 ]; then
   echo "  CONFIG_YAML          - Path to PACEvolve config YAML file"
   echo "  SAVE_PATH            - Save directory path"
   echo "  IS_TRAINING          - True for training, False for inference-only"
-  echo "  REWARD_PROCESS_TYPE  - Reward processing type (original_reward, improve_reward)"
+  echo "  REWARD_PROCESS_TYPE  - Reward processing type (original_reward, rl_normalized_reward, improve_reward)"
   echo "  SEED                 - Random seed for reproducibility"
   echo ""
   echo "Optional parameters:"

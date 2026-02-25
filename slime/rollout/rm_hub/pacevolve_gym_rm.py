@@ -26,6 +26,15 @@ def _get_parent_combined_score(parent_program, default_low_score: float) -> floa
     return default_low_score
 
 
+def _get_rl_normalized_reward(metrics: Dict[str, Any], default_low_score: float) -> float:
+    """Get rl_normalized_reward from metrics."""
+    val = metrics.get("rl_normalized_reward")
+    if val is not None:
+        return val
+    print(f"[WARNING] rl_normalized_reward missing in metrics: {metrics}")
+    return default_low_score
+
+
 def _process_reward(
     metrics: Dict[str, Any],
     parent_program,
@@ -34,6 +43,9 @@ def _process_reward(
 ) -> float:
     if reward_process_type == "original_reward":
         return _get_combined_score(metrics, default_low_score)
+
+    elif reward_process_type == "rl_normalized_reward":
+        return _get_rl_normalized_reward(metrics, default_low_score)
 
     elif reward_process_type == "improve_reward":
         child_score = _get_combined_score(metrics, default_low_score)

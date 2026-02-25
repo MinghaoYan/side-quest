@@ -1133,7 +1133,7 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 "--pacevolve-gym-reward-process-type",
                 type=str,
                 default="original_reward",
-                choices=["original_reward", "improve_reward"],
+                choices=["original_reward", "rl_normalized_reward", "improve_reward"],
                 help="Reward processing type for PACEvolve gym.",
             )
 

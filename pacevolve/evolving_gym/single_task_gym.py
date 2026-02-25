@@ -14,6 +14,7 @@ import dataclasses
 import importlib
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -202,6 +203,7 @@ class PACEvolveSingleTaskGym:
         self._initialized = False
         self.log_prompts = log_prompts
         self._llm_name = self.config["llm"]["name"]
+        self._rl_reward_cfg = self._build_rl_reward_config()
 
         # Resolve paths
         pacevolve_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -331,6 +333,63 @@ class PACEvolveSingleTaskGym:
             return importlib.import_module(
                 f"tasks.{self.task_id}.config.{dataset_id}.{prompt_filename}"
             )
+
+    def _build_rl_reward_config(self) -> Dict[str, float]:
+        """Build score->reward transform config for rl_normalized_reward."""
+        eval_cfg = self.config.get("evaluation", {})
+        score_cfg = self.config.get("score_transform", {})
+
+        init_score = float(eval_cfg.get("init_score", 0.0))
+        target_score = float(eval_cfg.get("target_score", 1.0))
+        auto_min = min(init_score, target_score)
+        auto_max = max(init_score, target_score)
+
+        score_min = float(score_cfg.get("score_range_min", auto_min))
+        score_max = float(score_cfg.get("score_range_max", auto_max))
+        if score_max <= score_min:
+            score_max = score_min + 1.0
+
+        alpha = float(score_cfg.get("alpha", 1.0))
+        if alpha <= 0:
+            alpha = 1.0
+
+        positive_multiplier = float(score_cfg.get("positive_multiplier", 5.0))
+        if positive_multiplier <= 0:
+            positive_multiplier = 1.0
+
+        metric_direction = str(eval_cfg.get("metric_direction", "max")).lower()
+        if metric_direction not in ("max", "min"):
+            metric_direction = "max"
+
+        return {
+            "score_min": score_min,
+            "score_max": score_max,
+            "alpha": alpha,
+            "positive_multiplier": positive_multiplier,
+            "metric_direction": metric_direction,
+        }
+
+    def _compute_rl_normalized_reward(self, combined_score: float, is_error: bool = False) -> float:
+        """Convert combined_score to rl_normalized_reward with deterministic scaling."""
+        if is_error:
+            return float(combined_score)
+        if math.isnan(combined_score) or math.isinf(combined_score):
+            return -1.0
+
+        score_min = self._rl_reward_cfg["score_min"]
+        score_max = self._rl_reward_cfg["score_max"]
+        alpha = self._rl_reward_cfg["alpha"]
+        positive_multiplier = self._rl_reward_cfg["positive_multiplier"]
+        direction = self._rl_reward_cfg["metric_direction"]
+
+        clamped = max(score_min, min(score_max, combined_score))
+        if direction == "min":
+            linear = (score_max - clamped) / (score_max - score_min)
+        else:
+            linear = (clamped - score_min) / (score_max - score_min)
+
+        linear = max(0.0, min(1.0, linear))
+        return float((linear**alpha) * positive_multiplier)
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -528,7 +587,12 @@ class PACEvolveSingleTaskGym:
     def _make_error_result(
         self, parent: ParentProgram, error: str, code: str = "", t0: float = 0.0,
     ) -> Result:
-        child_metrics = {"combined_score": -1.0, "error": error}
+        combined_score = -1.0
+        child_metrics = {
+            "combined_score": combined_score,
+            "rl_normalized_reward": self._compute_rl_normalized_reward(combined_score, is_error=True),
+            "error": error,
+        }
         child = ChildProgram(
             id=str(uuid.uuid4()),
             code=code,
@@ -707,6 +771,7 @@ class PACEvolveSingleTaskGym:
             ))
 
             eval_score = self._task_eval_utils.parse_eval_results(trial.eval_results)
+            parse_failed = eval_score is None
             if eval_score is None:
                 eval_score = -1.0
 
@@ -751,7 +816,13 @@ class PACEvolveSingleTaskGym:
                                      repo_idx_before_backtrack, trigger_merge)
 
             # ----- Step 9: Register program in DB -----
-            child_metrics = {"combined_score": float(eval_score)}
+            combined_score = float(eval_score)
+            child_metrics = {
+                "combined_score": combined_score,
+                "rl_normalized_reward": self._compute_rl_normalized_reward(
+                    combined_score, is_error=parse_failed
+                ),
+            }
             child = ChildProgram(
                 id=str(uuid.uuid4()),
                 code=trial.algorithm_implementation,
