@@ -44,6 +44,7 @@ class IterationResult:
     success: bool = False
     error: Optional[str] = None
     elapsed: float = 0.0
+    updated_idea_repo: Optional[object] = None
 
 
 def _worker_init(config_dict: dict, project_root: str):
@@ -79,6 +80,37 @@ def _worker_init(config_dict: dict, project_root: str):
         _worker_prompts = importlib.import_module(f"tasks.{task_id}.config.{dataset_id}.{prompt_filename}")
 
 
+def _finalize_idea_repo_worker(
+    new_idea_repo,
+    last_bt_iter: bool,
+    pre_bt_idea_repo,
+    trigger_merge: bool,
+    idea_cap: int,
+    merge_freq: int,
+    transcript_file: str,
+):
+    """Handle backtrack merge and idea-cap merge inside the worker process.
+
+    Mirrors run_experiment.py lines 495-500 and single_task_gym._finalize_idea_repo.
+    """
+    if last_bt_iter and merge_freq > -1 and pre_bt_idea_repo is not None:
+        try:
+            new_idea_repo.ideas.extend(pre_bt_idea_repo.ideas)
+            new_idea_repo.reindex_ideas()
+        except Exception as e:
+            logger.error("Backtrack merge failed in worker: %s", e)
+
+    if trigger_merge and new_idea_repo is not None:
+        try:
+            import workflow_utils
+            workflow_utils.merge_ideas(
+                _worker_llm_name, transcript_file, _worker_config,
+                new_idea_repo, idea_cap,
+            )
+        except Exception as e:
+            logger.error("merge_ideas failed in worker: %s", e)
+
+
 def _run_island_iteration(
     iteration: int,
     island_id: int,
@@ -89,11 +121,20 @@ def _run_island_iteration(
     max_attempt: int,
     baseline_id: int,
     transcript_file: str,
+    trigger_merge: bool = False,
+    last_bt_iter: bool = False,
+    pre_bt_idea_repo_snapshot=None,
+    idea_cap: int = -1,
+    merge_freq: int = -1,
+    summarize_freq: int = 20,
 ) -> IterationResult:
     """Worker function executed in a child process.
 
     Runs the full pipeline for one iteration on a given island:
     idea generation -> LLM code generation -> compile -> eval -> summarise.
+
+    Also handles idea repo updates (experiment history, summarization),
+    backtrack merges, and idea-cap merges -- matching sequential mode.
     """
     t0 = time.time()
     result = IterationResult(iteration=iteration, island_id=island_id)
@@ -124,6 +165,11 @@ def _run_island_iteration(
             idea_gen_prompt_text = prompts.construct_idea_gen_prompt(sota_algo, new_idea_repo)
             new_hypo = idea_select_utils.scratch_pad(new_idea_repo, llm_name, transcript, config, idea_gen_prompt_text)
             if not new_hypo:
+                _finalize_idea_repo_worker(
+                    new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
+                    trigger_merge, idea_cap, merge_freq, transcript_file,
+                )
+                result.updated_idea_repo = new_idea_repo
                 result.error = "Failed to generate new hypothesis"
                 result.elapsed = time.time() - t0
                 return result
@@ -165,6 +211,11 @@ def _run_island_iteration(
         )
         transcript.hide_by_tag(tags=["initial_compile_loop"])
         if not trial.compile_success:
+            _finalize_idea_repo_worker(
+                new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
+                trigger_merge, idea_cap, merge_freq, transcript_file,
+            )
+            result.updated_idea_repo = new_idea_repo
             result.error = "Compilation failed"
             result.elapsed = time.time() - t0
             return result
@@ -177,6 +228,11 @@ def _run_island_iteration(
         )
         transcript.hide_by_tag(tags=["initial_eval_loop"])
         if not all(trial.eval_success):
+            _finalize_idea_repo_worker(
+                new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
+                trigger_merge, idea_cap, merge_freq, transcript_file,
+            )
+            result.updated_idea_repo = new_idea_repo
             result.error = "Evaluation failed"
             result.elapsed = time.time() - t0
             return result
@@ -202,6 +258,29 @@ def _run_island_iteration(
                     pass
                 break
 
+        # Update idea repo: experiment history + summarization
+        if use_idea_repo and new_idea_repo is not None and trial.idea_id != -1:
+            try:
+                import idea_select_utils
+                idea_obj = new_idea_repo.find_idea_by_id(trial.idea_id)
+                if idea_obj is not None:
+                    idea_obj.exp_history.extend(bullets)
+                    idea_obj.exp_count += 1
+                    if summarize_freq > 0 and idea_obj.exp_count % summarize_freq == 0:
+                        idea_select_utils.summarize(
+                            idea_obj, llm_name, config,
+                            Transcript(log_filename=transcript_file),
+                            Transcript(log_filename=transcript_file),
+                        )
+            except Exception as e:
+                logger.error("Idea repo update/summarize failed: %s", e)
+
+        # Backtrack merge + idea-cap merge
+        _finalize_idea_repo_worker(
+            new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
+            trigger_merge, idea_cap, merge_freq, transcript_file,
+        )
+
         result.program_code = trial.algorithm_implementation
         result.eval_score = eval_score
         result.eval_results = trial.eval_results
@@ -209,6 +288,7 @@ def _run_island_iteration(
         result.idea_id = trial.idea_id
         result.success = True
         result.elapsed = time.time() - t0
+        result.updated_idea_repo = new_idea_repo
         return result
 
     except Exception as e:
@@ -235,7 +315,12 @@ async def run_parallel_evolution(
 
     Submits island iterations to a ProcessPoolExecutor and processes results
     as they complete, updating the shared databases in the main process.
+
+    Now includes backtracking (momentum-based + periodic), merge_ideas,
+    idea summarization, and failure-path merges -- matching sequential mode.
     """
+    import idea_select_utils
+
     max_iters = config['experiment']['max_iters']
     baseline_id = config['experiment']['initial_baseline_id']
     num_islands = config['database']['num_islands']
@@ -243,10 +328,25 @@ async def run_parallel_evolution(
     config_for_workers = deepcopy(config)
     config_for_workers['_dataset_id'] = args.dataset_id
 
+    # Per-island counters (incremented on submit, matching sequential)
     per_island_count = [0] * num_islands
     last_crossover_idx = [0] * num_islands
     in_flight_per_island = [0] * num_islands
     forced_parent_for_island: list[Optional[str]] = [None] * num_islands
+
+    # Backtrack state per island
+    backtrack_triggered_idx: list[int] = [-1] * num_islands
+    repo_idx_before_backtrack: list[int] = [0] * num_islands
+
+    # Workflow params (mirror args used in sequential mode)
+    backtrack_freq = getattr(args, 'backtrack_freq', -1)
+    backtrack_len = getattr(args, 'backtrack_len', 5)
+    power_alpha = getattr(args, 'power_alpha', 1.5)
+    idea_cap = getattr(args, 'idea_cap', 5)
+    merge_freq = getattr(args, 'merge_freq', 1)
+    summarize_freq = getattr(args, 'summarize_freq', 20)
+    use_integrated_sampling = getattr(args, 'use_integrated_sampling', True)
+    freeze_period = getattr(args, 'freeze_period', 15)
 
     completed = 0
     submitted = 0
@@ -255,6 +355,11 @@ async def run_parallel_evolution(
     logger.info(
         f"Starting parallel evolution: {max_iters} iterations, "
         f"{num_workers} workers, {num_islands} islands"
+    )
+    logger.info(
+        f"  backtrack_freq={backtrack_freq} backtrack_len={backtrack_len} "
+        f"power_alpha={power_alpha} idea_cap={idea_cap} merge_freq={merge_freq} "
+        f"summarize_freq={summarize_freq}"
     )
 
     executor = ProcessPoolExecutor(
@@ -285,22 +390,99 @@ async def run_parallel_evolution(
             if island_id_for_iter is None:
                 return False
 
-            # One-step off-policy crossover parent override.
-            if forced_parent_for_island[island_id_for_iter] is not None:
-                parent_code = forced_parent_for_island[island_id_for_iter]
-                forced_parent_for_island[island_id_for_iter] = None
-            else:
-                parent_code, _ = db.get_candidate_for_island(island_id_for_iter)
+            island = island_id_for_iter
+            trigger_backtrack = False
+            last_bt_iter = False
+            pre_bt_snapshot = None
 
-            idea_snapshot = None
-            if args.use_idea_repo and idea_repo_db.idea_repos[island_id_for_iter]:
-                idea_snapshot = deepcopy(idea_repo_db.idea_repos[island_id_for_iter][-1])
+            # ---- Backtrack / parent selection logic (mirrors sequential) ----
+            bt_idx = backtrack_triggered_idx[island]
+            if bt_idx > -1 and per_island_count[island] - bt_idx < backtrack_len:
+                # Ongoing backtrack
+                if per_island_count[island] - bt_idx == backtrack_len - 1:
+                    last_bt_iter = True
+                parent_code = idea_repo_db.idea_repos[island][-1].sota
+                idea_snapshot = deepcopy(idea_repo_db.idea_repos[island][-1])
+                if last_bt_iter:
+                    pre_bt_snapshot = deepcopy(
+                        idea_repo_db.idea_repos[island][repo_idx_before_backtrack[island]]
+                    )
+            else:
+                # Clear stale backtrack state
+                if bt_idx > -1:
+                    backtrack_triggered_idx[island] = -1
+
+                # One-step off-policy crossover parent override
+                if forced_parent_for_island[island] is not None:
+                    parent_code = forced_parent_for_island[island]
+                    forced_parent_for_island[island] = None
+                else:
+                    parent_code, _ = db.get_candidate_for_island(island)
+
+                if len(idea_repo_db.idea_repos[island]) == 0:
+                    idea_snapshot = None
+                else:
+                    idea_snapshot = deepcopy(idea_repo_db.idea_repos[island][-1])
+
+                # Integrated sampling: crossover / backtrack trigger
+                if (
+                    use_integrated_sampling
+                    and per_island_count[island] - last_crossover_idx[island] > freeze_period
+                    and idea_repo_db.scheduler.check_trigger(island)
+                ):
+                    action, cross_id = idea_repo_db.scheduler.sample_action(island)
+                    if action == "CROSSOVER" and cross_id is not None:
+                        last_crossover_idx[island] = per_island_count[island]
+                        _, cross_sota = db.get_best_program_for_island(cross_id)
+                        if cross_sota is not None:
+                            parent_code = cross_sota
+                        if idea_repo_db.idea_repos[island]:
+                            best_repo = idea_repo_db.get_best_idea_repo(cross_id)
+                            if idea_snapshot is None:
+                                idea_snapshot = deepcopy(best_repo)
+                            else:
+                                idea_snapshot.ideas.extend(best_repo.ideas)
+                                idea_snapshot.reindex_ideas()
+                            idea_repo_db.idea_repos[island].append(deepcopy(idea_snapshot))
+                    elif action == "BACKTRACK":
+                        last_crossover_idx[island] = per_island_count[island]
+                        trigger_backtrack = True
+
+                # Periodic or triggered backtrack
+                count = per_island_count[island]
+                if (backtrack_freq != -1 and (count + 1) % backtrack_freq == 0) or trigger_backtrack:
+                    if len(idea_repo_db.idea_repos[island]) > 0:
+                        backtrack_triggered_idx[island] = count
+                        repo_idx_before_backtrack[island] = len(idea_repo_db.idea_repos[island]) - 1
+                        sampled_idx = idea_select_utils.sample_power_law(
+                            len(idea_repo_db.idea_repos[island]),
+                            alpha=power_alpha,
+                        )
+                        parent_code = idea_repo_db.idea_repos[island][sampled_idx].sota
+                        idea_snapshot = deepcopy(idea_repo_db.idea_repos[island][sampled_idx])
+
+            # ---- Compute trigger_merge (mirrors sequential) ----
+            trigger_merge = False
+            if idea_cap > -1 and idea_snapshot is not None and len(idea_snapshot.ideas) > idea_cap and merge_freq > -1:
+                if use_integrated_sampling and per_island_count[island] - last_crossover_idx[island] == freeze_period:
+                    trigger_merge = True
+                elif backtrack_freq == -1 or (per_island_count[island] + 1) % backtrack_freq == backtrack_freq - 1:
+                    trigger_merge = True
+
+            logger.info(
+                f"Submitting iter {submitted} on island {island}: "
+                f"trigger_merge={trigger_merge} last_bt_iter={last_bt_iter} "
+                f"bt_active={backtrack_triggered_idx[island] > -1}"
+            )
+
+            # Increment per-island count on submit (matching sequential)
+            per_island_count[island] += 1
 
             iter_id = submitted
             fut = executor.submit(
                 _run_island_iteration,
                 iter_id,
-                island_id_for_iter,
+                island,
                 parent_code,
                 idea_snapshot,
                 args.use_idea_repo,
@@ -308,10 +490,16 @@ async def run_parallel_evolution(
                 args.max_attempt,
                 baseline_id,
                 transcript_file,
+                trigger_merge,
+                last_bt_iter,
+                pre_bt_snapshot,
+                idea_cap,
+                merge_freq,
+                summarize_freq,
             )
-            pending[iter_id] = (fut, island_id_for_iter)
+            pending[iter_id] = (fut, island)
             submitted += 1
-            in_flight_per_island[island_id_for_iter] += 1
+            in_flight_per_island[island] += 1
             return True
 
         # Prime workers.
@@ -346,6 +534,11 @@ async def run_parallel_evolution(
                 continue
 
             island_id = result.island_id
+
+            # Apply updated idea repo from the worker (covers both success & failure)
+            if result.updated_idea_repo is not None and args.use_idea_repo:
+                idea_repo_db.idea_repos[island_id].append(result.updated_idea_repo)
+
             if result.success and result.eval_score is not None:
                 db.register_program(
                     program=result.program_code,
@@ -354,28 +547,6 @@ async def run_parallel_evolution(
                 )
                 idea_repo_db.best_scores_history[island_id].append(result.eval_score)
                 idea_repo_db.scheduler.update_score(island_id, result.eval_score)
-                per_island_count[island_id] += 1
-
-                # Keep crossover trigger semantics close to sequential:
-                # trigger after freeze period and after score update.
-                if (
-                    args.use_integrated_sampling
-                    and per_island_count[island_id] - last_crossover_idx[island_id] > args.freeze_period
-                    and idea_repo_db.scheduler.check_trigger(island_id)
-                ):
-                    action, cross_id = idea_repo_db.scheduler.sample_action(island_id)
-                    if action == "CROSSOVER" and cross_id is not None:
-                        last_crossover_idx[island_id] = per_island_count[island_id]
-                        # One-step off-policy: next sample on this island uses partner island SOTA.
-                        _, cross_sota = db.get_best_program_for_island(cross_id)
-                        if cross_sota is not None:
-                            forced_parent_for_island[island_id] = cross_sota
-                        if idea_repo_db.idea_repos[island_id]:
-                            current_repo = deepcopy(idea_repo_db.idea_repos[island_id][-1])
-                            best_repo = idea_repo_db.get_best_idea_repo(cross_id)
-                            current_repo.ideas.extend(best_repo.ideas)
-                            current_repo.reindex_ideas()
-                            idea_repo_db.idea_repos[island_id].append(current_repo)
 
                 logger.info(
                     f"Iteration {result.iteration} (island {island_id}) completed in "
