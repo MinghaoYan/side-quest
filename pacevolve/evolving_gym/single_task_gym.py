@@ -437,6 +437,152 @@ class PACEvolveSingleTaskGym:
             return int(match.group(1)), match.group(2).strip()
         return None, None
 
+    @staticmethod
+    def _extract_json_object(text: str) -> Optional[dict]:
+        """Extract the first JSON object from model text output."""
+        if not text:
+            return None
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _log_policy_ideas(stage: str, hypotheses: List[str], selected_num: Optional[int], exp_description: Optional[str]):
+        """Log all policy-generated ideas for sanity checking at each stage."""
+        if not hypotheses:
+            logger.info("[policy-ideas][%s] no hypotheses", stage)
+            return
+        lines = [f"[policy-ideas][{stage}] total={len(hypotheses)} selected={selected_num}"]
+        for i, hypo in enumerate(hypotheses, start=1):
+            marker = " <SELECTED>" if selected_num == i else ""
+            lines.append(f"  {i}. {hypo}{marker}")
+        if exp_description is not None:
+            lines.append(f"  experiment_description={exp_description}")
+        logger.info("\n".join(lines))
+
+    def _normalize_policy_output_via_api(
+        self,
+        raw_policy_response: str,
+        llm_utils,
+        Transcript,
+        ContentChunk,
+    ) -> Tuple[List[str], Optional[int], Optional[str]]:
+        """Use API model to normalize free-form policy output into strict JSON fields."""
+        normalize_prompt = f"""
+You are a strict information extractor.
+Given a free-form policy output, extract exactly these fields and return JSON only:
+{{
+  "hypotheses": ["idea 1", "idea 2", "idea 3"],
+  "selected_idea": 1,
+  "experiment_description": "..."
+}}
+
+Rules:
+- "hypotheses" must contain exactly 3 concise strings. If there are more, keep the best 3.
+- "selected_idea" must be 1, 2, or 3 and must correspond to one hypothesis.
+- "experiment_description" must be a concise plain-text experiment plan.
+- Output valid JSON only. No markdown, no explanations.
+
+Policy output:
+```text
+{raw_policy_response}
+```
+"""
+        transcript = Transcript(log_filename=self._transcript_file)
+        transcript.append(ContentChunk(normalize_prompt, "user", tags=["policy_output_normalization_prompt"]))
+        normalized_text = llm_utils.generate_completion(self._llm_name, transcript, self.config)
+        transcript.append(ContentChunk(str(normalized_text), "model", tags=["policy_output_normalization_response"]))
+
+        def _parse_payload(payload: dict) -> Tuple[List[str], Optional[int], Optional[str]]:
+            hypotheses = payload.get("hypotheses")
+            selected_num = payload.get("selected_idea")
+            exp_description = payload.get("experiment_description")
+
+            if not isinstance(hypotheses, list):
+                hypotheses = []
+            hypotheses = [str(x).strip() for x in hypotheses if str(x).strip()]
+            if len(hypotheses) > 3:
+                hypotheses = hypotheses[:3]
+
+            try:
+                selected_num = int(selected_num)
+            except Exception:
+                selected_num = None
+            if selected_num not in (1, 2, 3):
+                selected_num = None
+
+            if exp_description is None:
+                exp_description = ""
+            exp_description = str(exp_description).strip()
+            if not exp_description:
+                exp_description = None
+            return hypotheses, selected_num, exp_description
+
+        data = self._extract_json_object(normalized_text or "")
+        if not isinstance(data, dict):
+            logger.warning("[policy-normalization] failed to parse JSON from normalization output")
+            return [], None, None
+
+        hypotheses, selected_num, exp_description = _parse_payload(data)
+        logger.info("[policy-normalization] detected %d/3 ideas from policy output", len(hypotheses))
+
+        # If fewer than 3 ideas are detected, ask API model to generate/complete to exactly 3.
+        if len(hypotheses) < 3:
+            completion_prompt = f"""
+You are repairing/augmenting policy ideas into a strict output schema.
+
+You were given a policy output and extracted only {len(hypotheses)} ideas out of 3.
+Please produce exactly 3 concrete hypotheses by preserving extracted ideas and generating missing ones.
+
+Return JSON only:
+{{
+  "hypotheses": ["idea 1", "idea 2", "idea 3"],
+  "selected_idea": 1,
+  "experiment_description": "..."
+}}
+
+Constraints:
+- hypotheses must be exactly 3 concise and distinct ideas.
+- Keep existing extracted ideas whenever possible:
+{json.dumps(hypotheses)}
+- selected_idea must be 1..3 and correspond to one of the final hypotheses.
+- If current selected idea is unavailable, choose the closest one.
+- experiment_description should align with selected_idea.
+- Output valid JSON only.
+
+Original policy output:
+```text
+{raw_policy_response}
+```
+"""
+            transcript.append(ContentChunk(completion_prompt, "user", tags=["policy_output_completion_prompt"]))
+            completion_text = llm_utils.generate_completion(self._llm_name, transcript, self.config)
+            transcript.append(ContentChunk(str(completion_text), "model", tags=["policy_output_completion_response"]))
+
+            completion_data = self._extract_json_object(completion_text or "")
+            if isinstance(completion_data, dict):
+                hypotheses, selected_num, exp_description = _parse_payload(completion_data)
+                logger.info("[policy-normalization] completed to %d/3 ideas", len(hypotheses))
+            else:
+                logger.warning("[policy-normalization] completion step returned non-JSON output")
+
+        if len(hypotheses) < 3:
+            return [], None, None
+
+        return hypotheses, selected_num, exp_description
+
     # ------------------------------------------------------------------
     # problem_generator  (SLIME interface)
     # ------------------------------------------------------------------
@@ -654,9 +800,15 @@ class PACEvolveSingleTaskGym:
             parent_code = parent_program.code
             prompts = self._prompts_module
 
-            # ----- Step 1: Parse trained policy output -----
-            hypotheses = idea_select_utils.parse_hypothesis(response)
-            selected_num, exp_description = self._parse_selected_hypothesis(response)
+            # ----- Step 1: Normalize and parse trained policy output -----
+            hypotheses, selected_num, exp_description = self._normalize_policy_output_via_api(
+                response, llm_utils, Transcript, ContentChunk
+            )
+            if not hypotheses:
+                # Fallback to legacy parser if API normalization fails
+                hypotheses = idea_select_utils.parse_hypothesis(response)
+                selected_num, exp_description = self._parse_selected_hypothesis(response)
+            self._log_policy_ideas("parsed", hypotheses, selected_num, exp_description)
 
             if not hypotheses:
                 logger.warning("Trained policy produced no parseable hypotheses.")
@@ -676,6 +828,7 @@ class PACEvolveSingleTaskGym:
                 selected_num = min(max(selected_num, 1), len(hypotheses))
 
             selected_hypothesis = hypotheses[selected_num - 1]
+            self._log_policy_ideas("pre_classification", hypotheses, selected_num, exp_description)
 
             # ----- Step 2: Classify hypotheses via API model -----
             hypo_to_idea_id: Dict[int, Optional[int]] = {}
@@ -714,6 +867,7 @@ class PACEvolveSingleTaskGym:
                     idea_id = new_idea_repo.ideas[-1].id
 
             # ----- Step 3: Build implementation prompt (API model) -----
+            self._log_policy_ideas("pre_implementation", hypotheses, selected_num, exp_description)
             impl_prompt = prompts.construct_code_impl_prompt(
                 parent_code, idea_id, exp_description,
                 selected_idea_text=selected_hypothesis,
@@ -726,6 +880,7 @@ class PACEvolveSingleTaskGym:
             transcript.append(ContentChunk(llm_impl_response, "model", tags=["initial_response"]))
 
             # ----- Step 4: edit_until_compile -----
+            self._log_policy_ideas("pre_compile", hypotheses, selected_num, exp_description)
             trial = AlgorithmTrial()
             trial.idea_id = idea_id if idea_id is not None else -1
             trial = workflow_utils.edit_until_compile(
@@ -743,6 +898,7 @@ class PACEvolveSingleTaskGym:
                                               code=trial.algorithm_implementation, t0=t0)
 
             # ----- Step 5: edit_until_successful_eval -----
+            self._log_policy_ideas("pre_eval", hypotheses, selected_num, exp_description)
             baseline_id = self.config["experiment"]["initial_baseline_id"]
             candidate_id = self._generation_counter
 

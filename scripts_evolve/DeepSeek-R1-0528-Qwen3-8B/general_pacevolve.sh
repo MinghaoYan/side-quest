@@ -109,12 +109,12 @@ ROLLOUT_ARGS=(
   --reward-key reward
 
   --num-rollout 10000000
-  --rollout-batch-size 2
+  --rollout-batch-size 1
   --n-samples-per-prompt 8
   --rollout-max-response-len 16384
   --rollout-temperature 1.0
 
-  --over-sampling-batch-size 2
+  --over-sampling-batch-size 1
   --partial-rollout
 
   --num-steps-per-rollout 1
