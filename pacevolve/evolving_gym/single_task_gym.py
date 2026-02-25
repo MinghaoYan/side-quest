@@ -459,10 +459,16 @@ class PACEvolveSingleTaskGym:
             return None
 
     @staticmethod
+    def _emit_debug(msg: str):
+        """Emit diagnostics to both logger and stdout for Ray job logs."""
+        logger.warning(msg)
+        print(msg, flush=True)
+
+    @staticmethod
     def _log_policy_ideas(stage: str, hypotheses: List[str], selected_num: Optional[int], exp_description: Optional[str]):
         """Log all policy-generated ideas for sanity checking at each stage."""
         if not hypotheses:
-            logger.info("[policy-ideas][%s] no hypotheses", stage)
+            PACEvolveSingleTaskGym._emit_debug(f"[policy-ideas][{stage}] no hypotheses")
             return
         lines = [f"[policy-ideas][{stage}] total={len(hypotheses)} selected={selected_num}"]
         for i, hypo in enumerate(hypotheses, start=1):
@@ -470,7 +476,7 @@ class PACEvolveSingleTaskGym:
             lines.append(f"  {i}. {hypo}{marker}")
         if exp_description is not None:
             lines.append(f"  experiment_description={exp_description}")
-        logger.info("\n".join(lines))
+        PACEvolveSingleTaskGym._emit_debug("\n".join(lines))
 
     def _normalize_policy_output_via_api(
         self,
@@ -532,14 +538,14 @@ Policy output:
 
         data = self._extract_json_object(normalized_text or "")
         if not isinstance(data, dict):
-            logger.warning(
-                "[policy-normalization] failed to parse JSON from normalization output; response_snippet=%r",
-                (normalized_text or "")[:600],
+            self._emit_debug(
+                f"[policy-normalization] failed to parse JSON from normalization output; "
+                f"response_snippet={(normalized_text or '')[:600]!r}"
             )
             return [], None, None
 
         hypotheses, selected_num, exp_description = _parse_payload(data)
-        logger.info("[policy-normalization] detected %d/3 ideas from policy output", len(hypotheses))
+        self._emit_debug(f"[policy-normalization] detected {len(hypotheses)}/3 ideas from policy output")
 
         # If fewer than 3 ideas are detected, ask API model to generate/complete to exactly 3.
         if len(hypotheses) < 3:
@@ -577,19 +583,17 @@ Original policy output:
             completion_data = self._extract_json_object(completion_text or "")
             if isinstance(completion_data, dict):
                 hypotheses, selected_num, exp_description = _parse_payload(completion_data)
-                logger.info("[policy-normalization] completed to %d/3 ideas", len(hypotheses))
+                self._emit_debug(f"[policy-normalization] completed to {len(hypotheses)}/3 ideas")
             else:
-                logger.warning(
-                    "[policy-normalization] completion step returned non-JSON output; response_snippet=%r",
-                    (completion_text or "")[:600],
+                self._emit_debug(
+                    f"[policy-normalization] completion step returned non-JSON output; "
+                    f"response_snippet={(completion_text or '')[:600]!r}"
                 )
 
         if len(hypotheses) < 3:
-            logger.warning(
-                "[policy-normalization] final idea count still <3; count=%d selected=%s exp_desc_present=%s",
-                len(hypotheses),
-                selected_num,
-                bool(exp_description),
+            self._emit_debug(
+                f"[policy-normalization] final idea count still <3; count={len(hypotheses)} "
+                f"selected={selected_num} exp_desc_present={bool(exp_description)}"
             )
             return [], None, None
 
@@ -824,18 +828,19 @@ Original policy output:
 
             if not hypotheses:
                 logger.warning("Trained policy produced no parseable hypotheses.")
-                logger.warning("Raw policy response snippet (no_hypotheses): %r", (response or "")[:1200])
+                self._emit_debug(
+                    f"[policy-normalization] Raw policy response snippet (no_hypotheses): {(response or '')[:1200]!r}"
+                )
                 self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
                                          repo_idx_before_backtrack, trigger_merge, append=False)
                 return self._make_error_result(parent_program, "no_hypotheses", t0=t0)
 
             if selected_num is None or exp_description is None:
                 logger.warning("Trained policy did not produce a valid idea selection.")
-                logger.warning(
-                    "Selection parse details: selected_num=%s exp_description_present=%s response_snippet=%r",
-                    selected_num,
-                    bool(exp_description),
-                    (response or "")[:1200],
+                self._emit_debug(
+                    f"[policy-selection] invalid selection: selected_num={selected_num} "
+                    f"exp_description_present={bool(exp_description)} "
+                    f"response_snippet={(response or '')[:1200]!r}"
                 )
                 self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
                                          repo_idx_before_backtrack, trigger_merge, append=False)
