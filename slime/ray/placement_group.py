@@ -1,3 +1,4 @@
+import os
 import socket
 import ray
 from ray.util.placement_group import placement_group
@@ -5,6 +6,16 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 from .actor_group import RayTrainGroup
 from .rollout import RolloutManager
+
+
+def _get_llm_api_env_vars():
+    """Collect LLM API keys from driver env so Ray workers (e.g. RolloutManager) can use them."""
+    env_vars = {}
+    for key in ("GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        val = os.environ.get(key)
+        if val:
+            env_vars[key] = val
+    return env_vars
 
 
 @ray.remote(num_gpus=1)
@@ -167,10 +178,11 @@ def create_training_models(args, pgs, wandb_run_id):
 
 
 def create_rollout_manager(args, pg, wandb_run_id):
-    rollout_manager = RolloutManager.options(
-        num_cpus=1,
-        num_gpus=0,
-    ).remote(args, pg, wandb_run_id=wandb_run_id)
+    opts_kw = {"num_cpus": 1, "num_gpus": 0}
+    llm_env = _get_llm_api_env_vars()
+    if llm_env:
+        opts_kw["runtime_env"] = {"env_vars": llm_env}
+    rollout_manager = RolloutManager.options(**opts_kw).remote(args, pg, wandb_run_id=wandb_run_id)
 
     if args.rollout_global_dataset:
         ray.get(rollout_manager.load.remote(args.start_rollout_id - 1))
