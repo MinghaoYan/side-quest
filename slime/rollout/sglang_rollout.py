@@ -301,6 +301,13 @@ async def generate_rollout_async(
         or (not args.rollout_global_dataset and getattr(args, "pacevolve_gym", False) and not args.evolving_gym)
     ), "Exactly one of global_dataset / evolving_gym / pacevolve_gym must be enabled."
 
+    # Set record context for PACEvolve per-sample transcript logging
+    if getattr(args, "pacevolve_gym", False) and getattr(args, "pacevolve_gym_record", False):
+        try:
+            from pacevolve.evolving_gym.record_context import set_rollout_id
+            set_rollout_id(rollout_id)
+        except Exception:
+            pass
 
     state = GenerateState(args)
 
@@ -480,11 +487,22 @@ async def generate_rollout_async(
                     "avg_reward": avg_reward,
                     "success_rate": success_rate,
                 }
-                gym.record_progress(training_step=rollout_id, step_metrics=step_metrics)
+                gym.record_progress(
+                    training_step=rollout_id,
+                    step_metrics=step_metrics,
+                    data=data,
+                )
             except Exception as e:
                 import traceback
                 print(f"[PACEvolveGym Recorder] record failed at rollout {rollout_id}: {e}", flush=True)
                 print(f"[PACEvolveGym Recorder] Full traceback: {traceback.format_exc()}", flush=True)
+
+        # Clear record context after rollout
+        if getattr(args, "pacevolve_gym_record", False) and hasattr(gym, "clear_record_context"):
+            try:
+                gym.clear_record_context()
+            except Exception:
+                pass
 
     # reset the global state to prevent effects on the next rollout or eval.
     state.reset()

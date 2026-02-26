@@ -25,6 +25,8 @@ import yaml
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
+from pacevolve.evolving_gym import record_context  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -322,6 +324,28 @@ class PACEvolveSingleTaskGym:
         print(f"[PACEvolveSingleTaskGym] Initialized for task={self.task_id}, "
               f"islands={num_islands}, reward_type={reward_process_type}")
 
+    def _get_transcript_filename(self) -> str:
+        """Return per-sample transcript file when recording, else shared transcript."""
+        ctx = record_context.get_record_context()
+        if ctx and self.recording_enabled:
+            step_dir = os.path.join(
+                ctx["record_dir"], f"step_{ctx['rollout_id']:05d}"
+            )
+            os.makedirs(step_dir, exist_ok=True)
+            return os.path.join(step_dir, f"api_{ctx['sample_index']:04d}.txt")
+        return self._transcript_file
+
+    def set_record_context(self, rollout_id: int, sample_index: int) -> None:
+        """Set record context for current sample (used by pacevolve_gym_rm)."""
+        if self.recording_enabled and hasattr(self, "_record_dir"):
+            record_context.set_record_context(
+                rollout_id, sample_index, self._record_dir
+            )
+
+    def clear_record_context(self) -> None:
+        """Clear record context after rollout."""
+        record_context.clear_record_context()
+
     def _import_prompts(self):
         prompt_filename = self.config["experiment"].get("prompts_file", "prompts")
         dataset_id = self.config.get("_dataset_id", ".")
@@ -506,7 +530,7 @@ Policy output:
 {raw_policy_response}
 ```
 """
-        transcript = Transcript(log_filename=self._transcript_file)
+        transcript = Transcript(log_filename=self._get_transcript_filename())
         transcript.append(ContentChunk(normalize_prompt, "user", tags=["policy_output_normalization_prompt"]))
         normalized_text = llm_utils.generate_completion(self._llm_name, transcript, self.config)
         transcript.append(ContentChunk(str(normalized_text), "model", tags=["policy_output_normalization_response"]))
@@ -857,7 +881,7 @@ Original policy output:
             # ----- Step 2: Classify hypotheses via API model -----
             hypo_to_idea_id: Dict[int, Optional[int]] = {}
             for idx, hypo in enumerate(hypotheses):
-                classification_transcript = Transcript(log_filename=self._transcript_file)
+                classification_transcript = Transcript(log_filename=self._get_transcript_filename())
                 classify_prompt = idea_select_utils.construct_idea_classification_prompt(
                     new_idea_repo, hypo,
                 )
@@ -896,7 +920,7 @@ Original policy output:
                 parent_code, idea_id, exp_description,
                 selected_idea_text=selected_hypothesis,
             )
-            transcript = Transcript(log_filename=self._transcript_file)
+            transcript = Transcript(log_filename=self._get_transcript_filename())
             transcript.append(ContentChunk(impl_prompt, "user", tags=["idea_selection_prompt"]))
             llm_impl_response = llm_utils.generate_completion(
                 self._llm_name, transcript, self.config,
@@ -986,8 +1010,8 @@ Original policy output:
                         try:
                             idea_select_utils.summarize(
                                 idea_obj, self._llm_name, self.config,
-                                Transcript(log_filename=self._transcript_file),
-                                Transcript(log_filename=self._transcript_file),
+                                Transcript(log_filename=self._get_transcript_filename()),
+                                Transcript(log_filename=self._get_transcript_filename()),
                             )
                         except Exception as e:
                             logger.error("Idea summarisation failed: %s", e)
@@ -1061,7 +1085,7 @@ Original policy output:
                 try:
                     import workflow_utils
                     workflow_utils.merge_ideas(
-                        self._llm_name, self._transcript_file, self.config,
+                        self._llm_name, self._get_transcript_filename(), self.config,
                         new_idea_repo, self._idea_cap,
                     )
                 except Exception as e:
@@ -1078,10 +1102,24 @@ Original policy output:
         self.recording_enabled = True
         self._record_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+        from pacevolve.evolving_gym.pacevolve_recorder import PACEvolveRecorder
+        self._recorder = PACEvolveRecorder(self, output_dir)
 
-    def record_progress(self, training_step: int, **kwargs):
+    def record_progress(
+        self,
+        training_step: int,
+        step_metrics: Optional[Dict[str, Any]] = None,
+        data: Optional[List[List[Any]]] = None,
+        **kwargs,
+    ):
         if not self.recording_enabled:
             return
+        if self._recorder is not None:
+            self._recorder.record_step(
+                rollout_id=training_step,
+                step_metrics=step_metrics,
+                data=data,
+            )
         best = self._programs_db.get_best_program()
         best_score = best[0] if best[0] is not None else "N/A"
         print(f"[PACEvolve Record] step={training_step} best_score={best_score}")

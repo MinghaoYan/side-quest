@@ -90,6 +90,20 @@ async def pacevolve_gym_rm(args, sample) -> Dict[str, Any]:
     if not parent_program:
         return {reward_key: default_low_score, "error": "missing_parent_program"}
 
+    # Set record context for per-sample API transcript logging
+    if (
+        getattr(_GYM, "recording_enabled", False)
+        and getattr(_GYM, "set_record_context", None) is not None
+    ):
+        try:
+            from pacevolve.evolving_gym.record_context import get_rollout_id
+            rid = get_rollout_id()
+            if rid is not None:
+                sample_index = getattr(sample, "index", 0)
+                _GYM.set_record_context(rid, sample_index)
+        except Exception:
+            pass
+
     try:
         result = await _GYM.response_scorer(sample.response or "", parent_program)
     except Exception as e:

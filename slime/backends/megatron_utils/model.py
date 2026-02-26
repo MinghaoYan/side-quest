@@ -508,6 +508,21 @@ def train(rollout_id, model, optimizer, opt_param_scheduler, data_iterator, num_
                     assert log_dict["train/kl_loss"] == 0.0
 
             print(f"{role_tag}step {accumulated_step_id}: {log_dict}")
+
+            # PACEvolve records: write train metrics to step metrics.json
+            if getattr(args, "pacevolve_gym_record", False) and getattr(
+                args, "pacevolve_gym_record_dir", None
+            ):
+                try:
+                    from pacevolve.evolving_gym.pacevolve_recorder import (
+                        update_step_train_metrics,
+                    )
+
+                    update_step_train_metrics(
+                        args.pacevolve_gym_record_dir, rollout_id, log_dict
+                    )
+                except Exception:
+                    pass
     # Close out pre-hooks if using distributed optimizer and overlapped param gather.
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
