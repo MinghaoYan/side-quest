@@ -462,10 +462,17 @@ async def generate_rollout_async(
 
         # Update database from temp cache (same role as evolving_gym path)
         gym.database.update_database_from_temp(verbose=True)
-        print(f"[SUCCESS] Rollout {rollout_id} PACEvolve database update")
+        print(f"[SUCCESS] Rollout {rollout_id} PACEvolve database update", flush=True)
 
         # Recording (optional, independent of database update)
-        if getattr(args, "pacevolve_gym_record", False) and gym.recording_enabled:
+        record_dir = getattr(args, "pacevolve_gym_record_dir", None)
+        will_record = getattr(args, "pacevolve_gym_record", False) and gym.recording_enabled
+        print(
+            f"[PACEvolve Recording] rollout={rollout_id} will_record={will_record} "
+            f"record_dir={record_dir} num_groups={len(data)}",
+            flush=True,
+        )
+        if will_record:
             try:
                 reward_key = getattr(args, "reward_key", "reward")
                 flat = []

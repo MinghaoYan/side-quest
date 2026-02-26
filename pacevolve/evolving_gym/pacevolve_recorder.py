@@ -63,8 +63,12 @@ class PACEvolveRecorder:
                         step_dir, f"policy_{sample_index:04d}.txt"
                     )
                     try:
+                        prompt = getattr(sample, "prompt", None) or ""
                         response = getattr(sample, "response", None) or ""
                         with open(policy_path, "w", encoding="utf-8") as f:
+                            f.write("=== PROMPT ===\n")
+                            f.write(prompt)
+                            f.write("\n\n=== RESPONSE ===\n")
                             f.write(response)
                     except Exception as e:
                         logger.warning(

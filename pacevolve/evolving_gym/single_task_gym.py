@@ -807,14 +807,31 @@ Original policy output:
     # ------------------------------------------------------------------
 
     async def response_scorer(
-        self, response: str, parent_program: ParentProgram
+        self,
+        response: str,
+        parent_program: ParentProgram,
+        policy_prompt: str = "",
     ) -> Optional[Result]:
         """Score a trained-policy response by running the full PACEvolve
         workflow: classify hypotheses, implement via API model, compile/eval
         retry loops, summarize, and update the evolutionary state."""
+        # Capture record context before run_in_executor - contextvars don't propagate to threads
+        ctx = record_context.get_record_context()
+
+        def _run_with_context():
+            if ctx and "sample_index" in ctx and "record_dir" in ctx:
+                record_context.set_record_context(
+                    ctx["rollout_id"],
+                    ctx["sample_index"],
+                    ctx["record_dir"],
+                )
+            return self._score_response_sync(
+                response, parent_program, policy_prompt=policy_prompt
+            )
+
         async with self._eval_semaphore:
             return await asyncio.get_event_loop().run_in_executor(
-                None, self._score_response_sync, response, parent_program
+                None, _run_with_context
             )
 
     def _make_error_result(
@@ -841,7 +858,10 @@ Original policy output:
         return result
 
     def _score_response_sync(
-        self, response: str, parent_program: ParentProgram
+        self,
+        response: str,
+        parent_program: ParentProgram,
+        policy_prompt: str = "",
     ) -> Optional[Result]:
         """Full PACEvolve iteration driven by the trained policy's ideas.
 
@@ -856,6 +876,17 @@ Original policy output:
         8. Update idea repo, DB, scheduler, ablation list
         """
         t0 = time.time()
+
+        # Write policy prompt at top of api transcript file for tracking
+        transcript_path = self._get_transcript_filename()
+        if policy_prompt and transcript_path != self._transcript_file:
+            try:
+                with open(transcript_path, "w", encoding="utf-8") as f:
+                    f.write("=== POLICY PROMPT ===\n")
+                    f.write(policy_prompt)
+                    f.write("\n\n=== API MODEL CALLS ===\n")
+            except Exception as e:
+                logger.warning("Failed to write policy prompt to transcript: %s", e)
 
         try:
             import llm_utils
@@ -1203,7 +1234,7 @@ Original policy output:
             )
         best = self._programs_db.get_best_program()
         best_score = best[0] if best[0] is not None else "N/A"
-        print(f"[PACEvolve Record] step={training_step} best_score={best_score}")
+        print(f"[PACEvolve Record] step={training_step} best_score={best_score}", flush=True)
 
     def seed_puct_archive(self):
         pass
