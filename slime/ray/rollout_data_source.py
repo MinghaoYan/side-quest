@@ -49,9 +49,11 @@ class PACEvolveGymManager:
         )
 
         if getattr(self.args, "pacevolve_gym_record", False):
-            self.gym.enable_recording(
-                getattr(self.args, "pacevolve_gym_record_dir", "gym_records")
-            )
+            record_dir = getattr(self.args, "pacevolve_gym_record_dir", "gym_records")
+            self.gym.enable_recording(record_dir)
+            print(f"[PACEvolveGymManager] Recording enabled: record_dir={record_dir}", flush=True)
+        else:
+            print(f"[PACEvolveGymManager] Recording disabled (pacevolve_gym_record=False)", flush=True)
 
         print(f"[PACEvolveGymManager] Initialized successfully")
         _set_pacevolve_gym_to_rm(self.gym)

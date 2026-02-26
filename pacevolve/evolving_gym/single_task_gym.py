@@ -17,7 +17,9 @@ import logging
 import math
 import os
 import re
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -345,6 +347,51 @@ class PACEvolveSingleTaskGym:
     def clear_record_context(self) -> None:
         """Clear record context after rollout."""
         record_context.clear_record_context()
+
+    def _create_sample_workspace(self):
+        """Create an isolated temp workspace for this sample to avoid race conditions
+        when multiple samples edit the same target file concurrently.
+        Returns (config_override, compile_config_override, cleanup_fn).
+        """
+        import task_utils
+
+        src_path = os.path.expanduser(self.config["paths"]["src_path"])
+        results_path = os.path.expanduser(self.config["paths"].get("results_path", "/tmp"))
+        target_file = self.config["paths"]["target_file_path"]
+
+        temp_root = tempfile.mkdtemp(prefix="pacevolve_sample_")
+        temp_src = os.path.join(temp_root, "src")
+        temp_results = os.path.join(temp_root, "results")
+
+        try:
+            shutil.copytree(src_path, temp_src)
+        except Exception as e:
+            logger.error("Failed to copy src to temp workspace: %s", e)
+            try:
+                shutil.rmtree(temp_root, ignore_errors=True)
+            except Exception:
+                pass
+            raise
+
+        os.makedirs(temp_results, exist_ok=True)
+
+        config_override = deepcopy(self.config)
+        config_override["paths"] = dict(config_override["paths"])
+        config_override["paths"]["src_path"] = temp_src
+        config_override["paths"]["results_path"] = temp_results
+
+        compile_config_override = task_utils.CompilationConfig(
+            target_file_path=os.path.join(temp_src, target_file),
+            pip_path=None,
+        )
+
+        def cleanup():
+            try:
+                shutil.rmtree(temp_root, ignore_errors=True)
+            except Exception as e:
+                logger.warning("Failed to cleanup temp workspace %s: %s", temp_root, e)
+
+        return config_override, compile_config_override, cleanup
 
     def _import_prompts(self):
         prompt_filename = self.config["experiment"].get("prompts_file", "prompts")
@@ -927,35 +974,43 @@ Original policy output:
             )
             transcript.append(ContentChunk(llm_impl_response, "model", tags=["initial_response"]))
 
-            # ----- Step 4: edit_until_compile -----
-            self._log_policy_ideas("pre_compile", hypotheses, selected_num, exp_description)
-            trial = AlgorithmTrial()
-            trial.idea_id = idea_id if idea_id is not None else -1
-            trial = workflow_utils.edit_until_compile(
-                self._llm_name, trial, transcript, self._compile_config, self.config,
-                loop_config=self.config["workflow_loops"]["initial_compile"],
-                use_idea_repo=False,
+            # ----- Step 4 & 5: edit_until_compile + edit_until_successful_eval -----
+            # Use per-sample isolated workspace to avoid race when n_samples_per_prompt > 1
+            config_override, compile_config_override, cleanup_workspace = (
+                self._create_sample_workspace()
             )
-            transcript.hide_by_tag(tags=["initial_compile_loop"])
+            try:
+                self._log_policy_ideas("pre_compile", hypotheses, selected_num, exp_description)
+                trial = AlgorithmTrial()
+                trial.idea_id = idea_id if idea_id is not None else -1
+                trial = workflow_utils.edit_until_compile(
+                    self._llm_name, trial, transcript,
+                    compile_config_override, config_override,
+                    loop_config=self.config["workflow_loops"]["initial_compile"],
+                    use_idea_repo=False,
+                )
+                transcript.hide_by_tag(tags=["initial_compile_loop"])
 
-            if not trial.compile_success:
-                logger.warning("Compilation failed after retries.")
-                self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
-                                         repo_idx_before_backtrack, trigger_merge, append=False)
-                return self._make_error_result(parent_program, "compile_error",
-                                              code=trial.algorithm_implementation, t0=t0)
+                if not trial.compile_success:
+                    logger.warning("Compilation failed after retries.")
+                    self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
+                                             repo_idx_before_backtrack, trigger_merge, append=False)
+                    return self._make_error_result(parent_program, "compile_error",
+                                                  code=trial.algorithm_implementation, t0=t0)
 
-            # ----- Step 5: edit_until_successful_eval -----
-            self._log_policy_ideas("pre_eval", hypotheses, selected_num, exp_description)
-            baseline_id = self.config["experiment"]["initial_baseline_id"]
-            candidate_id = self._generation_counter
+                # ----- Step 5: edit_until_successful_eval -----
+                self._log_policy_ideas("pre_eval", hypotheses, selected_num, exp_description)
+                baseline_id = self.config["experiment"]["initial_baseline_id"]
+                candidate_id = self._generation_counter
 
-            trial = workflow_utils.edit_until_successful_eval(
-                self._llm_name, trial, transcript, self._compile_config,
-                self._eval_configs, self.config,
-                candidate_id, baseline_id,
-                loop_config=self.config["workflow_loops"]["initial_eval"],
-            )
+                trial = workflow_utils.edit_until_successful_eval(
+                    self._llm_name, trial, transcript, compile_config_override,
+                    self._eval_configs, config_override,
+                    candidate_id, baseline_id,
+                    loop_config=self.config["workflow_loops"]["initial_eval"],
+                )
+            finally:
+                cleanup_workspace()
             transcript.hide_by_tag(tags=["initial_eval_loop"])
 
             if not all(trial.eval_success):
@@ -1104,6 +1159,28 @@ Original policy output:
         os.makedirs(output_dir, exist_ok=True)
         from pacevolve.evolving_gym.pacevolve_recorder import PACEvolveRecorder
         self._recorder = PACEvolveRecorder(self, output_dir)
+        # Redirect PACEvolve logger output to a file (logger.info is hidden by default)
+        self._setup_pacevolve_file_logging(output_dir)
+        print(f"[PACEvolve] Recording enabled: output_dir={os.path.abspath(output_dir)}", flush=True)
+
+    def _setup_pacevolve_file_logging(self, output_dir: str) -> None:
+        """Add a file handler so logger.info from PACEvolve modules is written to a file."""
+        log_path = os.path.join(output_dir, "pacevolve.log")
+        try:
+            file_handler = logging.FileHandler(log_path, encoding="utf-8")
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            file_handler.setFormatter(formatter)
+            for name in ("controller", logger.name, "pacevolve.evolving_gym.pacevolve_recorder"):
+                lg = logging.getLogger(name)
+                lg.setLevel(min(lg.level or logging.INFO, logging.DEBUG))
+                lg.addHandler(file_handler)
+            self._pacevolve_log_handler = file_handler
+            print(f"[PACEvolve] Logs written to {log_path}", flush=True)
+        except Exception as e:
+            logger.warning("Could not set up PACEvolve file logging: %s", e)
 
     def record_progress(
         self,
