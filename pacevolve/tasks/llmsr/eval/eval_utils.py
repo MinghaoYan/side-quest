@@ -36,11 +36,13 @@ def recompile_library(config: dict) -> CompletedProcess:
     CANDIDATE_SCRIPT = os.path.join(
       TARGET_PATH, config['paths']['target_file_path']
     )
+    CANDIDATE_SCRIPT = os.path.abspath(CANDIDATE_SCRIPT)
     # CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
     command = (
       f"python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} --data_path {config['paths']['data_path']} --problem_idx {config['evaluation']['problem_idx']}"
     )
     logger.info(f"recompile_library: Running command: {command}")
+    print(f"[recompile_library] candidate_path={CANDIDATE_SCRIPT}", flush=True)
     process_result = _call_shell_command(
       command, timeout=comp_config['recompile_timeout'], max_retries=comp_config['recompile_max_retries']
     )
@@ -82,6 +84,7 @@ def evaluate_dataset(
   CANDIDATE_SCRIPT = os.path.join(
     TARGET_PATH, config['paths']['target_file_path']
   )
+  CANDIDATE_SCRIPT = os.path.abspath(CANDIDATE_SCRIPT)
   # BASELINE_DIFF_SCRIPT = os.path.join(EVAL_PATH, config['evaluation']['baseline_diff_script_name'])
   # CONDA_PREFIX = f"conda run -n {config['compilation']['conda_env']} "
   results_dir = os.path.join(RESULTS_PATH, eval_config.dataset)
@@ -105,6 +108,7 @@ def evaluate_dataset(
     )
 
   logger.info(f"evaluate_dataset: Running {eval_command}")
+  print(f"[evaluate_dataset] candidate_path={CANDIDATE_SCRIPT}", flush=True)
   process_result_eval = _call_shell_command(
     eval_command, timeout=config['evaluation']['eval_timeout'], max_retries=config['evaluation']['eval_max_retries']
   )

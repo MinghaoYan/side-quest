@@ -49,7 +49,9 @@ class PACEvolveRecorder:
         step_dir = os.path.join(
             self.output_dir, f"step_{rollout_id:05d}"
         )
+        step_dir = os.path.abspath(step_dir)
         os.makedirs(step_dir, exist_ok=True)
+        print(f"[PACEvolveRecorder] Writing to step_dir={step_dir}", flush=True)
 
         # Write policy outputs (sample.response)
         candidates = []
@@ -96,6 +98,11 @@ class PACEvolveRecorder:
                         "error": error_val,
                     })
                     sample_index += 1
+        else:
+            print(
+                f"[PACEvolveRecorder] WARNING: data is None, no policy files written",
+                flush=True,
+            )
 
         # Build metrics.json (rollout + candidates; train filled later by trainer)
         metrics_obj = {

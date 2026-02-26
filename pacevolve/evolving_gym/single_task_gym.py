@@ -979,6 +979,10 @@ Original policy output:
             config_override, compile_config_override, cleanup_workspace = (
                 self._create_sample_workspace()
             )
+            print(
+                f"[PACEvolve] Using temp workspace target_file={compile_config_override.target_file_path}",
+                flush=True,
+            )
             try:
                 self._log_policy_ideas("pre_compile", hypotheses, selected_num, exp_description)
                 trial = AlgorithmTrial()
