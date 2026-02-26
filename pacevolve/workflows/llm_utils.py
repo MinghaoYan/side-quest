@@ -36,15 +36,22 @@ class ContentChunk:
 
 
 class Transcript(MutableSequence):
-    def __init__(self, log_filename: str | None = None):
+    def __init__(self, log_filename: str | None = None, readable_log: bool = False):
         self._log_filename = log_filename
         self._list = list()
+        self._readable_log = readable_log
 
     def _log_to_file(self, v):
         if isinstance(v, ContentChunk) and self._log_filename:
-            json_str = dataclasses.asdict(v)
-            with open(self._log_filename, 'a') as f:
-                f.write(json.dumps(json_str) + "\n")
+            with open(self._log_filename, "a", encoding="utf-8") as f:
+                if self._readable_log:
+                    tags_str = ",".join(v.tags) if v.tags else ""
+                    f.write(f"--- role: {v.role} tags: [{tags_str}] ---\n")
+                    f.write(str(v.content) if v.content is not None else "")
+                    f.write("\n---\n\n")
+                else:
+                    json_str = dataclasses.asdict(v)
+                    f.write(json.dumps(json_str) + "\n")
 
     def hide_by_tag(self, tags: list[str]):
         for chunk in self._list:

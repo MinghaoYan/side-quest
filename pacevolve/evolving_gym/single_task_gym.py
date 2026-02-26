@@ -577,7 +577,11 @@ Policy output:
 {raw_policy_response}
 ```
 """
-        transcript = Transcript(log_filename=self._get_transcript_filename())
+        tpath = self._get_transcript_filename()
+        transcript = Transcript(
+            log_filename=tpath,
+            readable_log=(tpath != self._transcript_file),
+        )
         transcript.append(ContentChunk(normalize_prompt, "user", tags=["policy_output_normalization_prompt"]))
         normalized_text = llm_utils.generate_completion(self._llm_name, transcript, self.config)
         transcript.append(ContentChunk(str(normalized_text), "model", tags=["policy_output_normalization_response"]))
@@ -807,10 +811,7 @@ Original policy output:
     # ------------------------------------------------------------------
 
     async def response_scorer(
-        self,
-        response: str,
-        parent_program: ParentProgram,
-        policy_prompt: str = "",
+        self, response: str, parent_program: ParentProgram
     ) -> Optional[Result]:
         """Score a trained-policy response by running the full PACEvolve
         workflow: classify hypotheses, implement via API model, compile/eval
@@ -825,9 +826,7 @@ Original policy output:
                     ctx["sample_index"],
                     ctx["record_dir"],
                 )
-            return self._score_response_sync(
-                response, parent_program, policy_prompt=policy_prompt
-            )
+            return self._score_response_sync(response, parent_program)
 
         async with self._eval_semaphore:
             return await asyncio.get_event_loop().run_in_executor(
@@ -858,10 +857,7 @@ Original policy output:
         return result
 
     def _score_response_sync(
-        self,
-        response: str,
-        parent_program: ParentProgram,
-        policy_prompt: str = "",
+        self, response: str, parent_program: ParentProgram
     ) -> Optional[Result]:
         """Full PACEvolve iteration driven by the trained policy's ideas.
 
@@ -876,17 +872,6 @@ Original policy output:
         8. Update idea repo, DB, scheduler, ablation list
         """
         t0 = time.time()
-
-        # Write policy prompt at top of api transcript file for tracking
-        transcript_path = self._get_transcript_filename()
-        if policy_prompt and transcript_path != self._transcript_file:
-            try:
-                with open(transcript_path, "w", encoding="utf-8") as f:
-                    f.write("=== POLICY PROMPT ===\n")
-                    f.write(policy_prompt)
-                    f.write("\n\n=== API MODEL CALLS ===\n")
-            except Exception as e:
-                logger.warning("Failed to write policy prompt to transcript: %s", e)
 
         try:
             import llm_utils
@@ -959,7 +944,11 @@ Original policy output:
             # ----- Step 2: Classify hypotheses via API model -----
             hypo_to_idea_id: Dict[int, Optional[int]] = {}
             for idx, hypo in enumerate(hypotheses):
-                classification_transcript = Transcript(log_filename=self._get_transcript_filename())
+                tpath = self._get_transcript_filename()
+                classification_transcript = Transcript(
+                    log_filename=tpath,
+                    readable_log=(tpath != self._transcript_file),
+                )
                 classify_prompt = idea_select_utils.construct_idea_classification_prompt(
                     new_idea_repo, hypo,
                 )
@@ -998,7 +987,11 @@ Original policy output:
                 parent_code, idea_id, exp_description,
                 selected_idea_text=selected_hypothesis,
             )
-            transcript = Transcript(log_filename=self._get_transcript_filename())
+            tpath = self._get_transcript_filename()
+            transcript = Transcript(
+                log_filename=tpath,
+                readable_log=(tpath != self._transcript_file),
+            )
             transcript.append(ContentChunk(impl_prompt, "user", tags=["idea_selection_prompt"]))
             llm_impl_response = llm_utils.generate_completion(
                 self._llm_name, transcript, self.config,
@@ -1098,10 +1091,17 @@ Original policy output:
                     idea_obj.exp_count += 1
                     if idea_obj.exp_count % self._summarize_freq == 0:
                         try:
+                            tpath = self._get_transcript_filename()
                             idea_select_utils.summarize(
                                 idea_obj, self._llm_name, self.config,
-                                Transcript(log_filename=self._get_transcript_filename()),
-                                Transcript(log_filename=self._get_transcript_filename()),
+                                Transcript(
+                                    log_filename=tpath,
+                                    readable_log=(tpath != self._transcript_file),
+                                ),
+                                Transcript(
+                                    log_filename=tpath,
+                                    readable_log=(tpath != self._transcript_file),
+                                ),
                             )
                         except Exception as e:
                             logger.error("Idea summarisation failed: %s", e)

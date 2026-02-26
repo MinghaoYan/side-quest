@@ -105,11 +105,7 @@ async def pacevolve_gym_rm(args, sample) -> Dict[str, Any]:
             pass
 
     try:
-        result = await _GYM.response_scorer(
-            sample.response or "",
-            parent_program,
-            policy_prompt=getattr(sample, "prompt", None) or "",
-        )
+        result = await _GYM.response_scorer(sample.response or "", parent_program)
     except Exception as e:
         print(f"exception in pacevolve_gym_rm: {e}")
         return {reward_key: default_low_score, "error": f"exception:{str(e)[:200]}"}
