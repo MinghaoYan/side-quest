@@ -320,12 +320,20 @@ async def generate_rollout_async(
     target_data_size = args.rollout_batch_size
 
     data = []
+    pacevolve_record_sample_index = 0
     do_print = True
     pbar = tqdm(total=target_data_size * args.n_samples_per_prompt, desc="Rollout generation")
     while len(data) < target_data_size:
         while state.remaining_batch_size < target_data_size:
             # get samples from the buffer and submit the generation requests.
             samples = data_source(args.over_sampling_batch_size)
+            if getattr(args, "pacevolve_gym", False) and getattr(args, "pacevolve_gym_record", False):
+                for group in samples:
+                    for sample in group:
+                        metadata = sample.metadata if isinstance(sample.metadata, dict) else {}
+                        metadata["record_sample_index"] = pacevolve_record_sample_index
+                        sample.metadata = metadata
+                        pacevolve_record_sample_index += 1
             state.submit_generate_tasks(samples)
 
         # wait for the generation to finish

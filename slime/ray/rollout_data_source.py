@@ -47,6 +47,14 @@ class PACEvolveGymManager:
             summarize_freq=getattr(args, "pacevolve_gym_summarize_freq", 20),
             n_samples_per_prompt=getattr(args, "n_samples_per_prompt", 1),
         )
+        self.num_islands = int(getattr(self.gym, "num_islands", 0))
+        expected_islands = int(getattr(args, "n_samples_per_prompt", 1))
+        if self.num_islands != expected_islands:
+            raise ValueError(
+                "PACEvolve requires database.num_islands == n_samples_per_prompt for "
+                f"per-slot island consistency, got num_islands={self.num_islands}, "
+                f"n_samples_per_prompt={expected_islands}."
+            )
 
         if getattr(self.args, "pacevolve_gym_record", False):
             record_dir = getattr(self.args, "pacevolve_gym_record_dir", "gym_records")
@@ -58,8 +66,7 @@ class PACEvolveGymManager:
         print(f"[PACEvolveGymManager] Initialized successfully")
         _set_pacevolve_gym_to_rm(self.gym)
 
-    def get_sample(self) -> Optional[Sample]:
-        prompt_dict, parent_program = self.gym.problem_generator()
+    def _build_sample(self, prompt_dict, parent_program) -> Sample:
         system_txt = prompt_dict.get("system") or ""
         user_txt = prompt_dict.get("user") or ""
 
@@ -86,6 +93,14 @@ class PACEvolveGymManager:
                 "evolving_gym": True,
             },
         )
+
+    def get_sample(self) -> Optional[Sample]:
+        prompt_dict, parent_program = self.gym.problem_generator()
+        return self._build_sample(prompt_dict, parent_program)
+
+    def get_sample_for_island(self, island_id: int) -> Optional[Sample]:
+        prompt_dict, parent_program = self.gym.problem_generator_for_island(island_id)
+        return self._build_sample(prompt_dict, parent_program)
 
 
 class EvolvingGymManager:
@@ -318,15 +333,17 @@ class RolloutDataSource:
             assert len(samples) == num_samples
         elif self.pacevolve_gym_manager is not None:
             while len(samples) < num_samples:
-                prompt_sample = self.pacevolve_gym_manager.get_sample()
-                if prompt_sample is None:
-                    continue
                 group = []
-                for _ in range(self.args.n_samples_per_prompt):
-                    sample = copy.deepcopy(prompt_sample)
+                for island_id in range(self.args.n_samples_per_prompt):
+                    sample = self.pacevolve_gym_manager.get_sample_for_island(island_id)
+                    if sample is None:
+                        group = []
+                        break
                     sample.index = self.sample_index
                     self.sample_index += 1
                     group.append(sample)
+                if len(group) != self.args.n_samples_per_prompt:
+                    continue
                 samples.append(group)
             assert len(samples) == num_samples
         else:

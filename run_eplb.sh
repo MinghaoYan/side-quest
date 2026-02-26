@@ -124,12 +124,21 @@ export WANDB_PROJECT=$WANDB_PROJECT
 
 # Generate runtime config with task-local paths and fast-iteration overrides.
 RUNTIME_CONFIG_YAML="${SAVE_PATH}/${RUN_NAME}/config_eplb_runtime.yaml"
-python3 - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${EPLB_DATA_PATH}" "${EPLB_MAX_ITERS}" "${EPLB_EVAL_TIMEOUT}" "${EPLB_RECOMPILE_TIMEOUT}" <<'PY'
+python3 - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${EPLB_DATA_PATH}" "${EPLB_MAX_ITERS}" "${EPLB_EVAL_TIMEOUT}" "${EPLB_RECOMPILE_TIMEOUT}" "${PACEVOLVE_N_SAMPLES_PER_PROMPT}" <<'PY'
 import os
 import sys
 import yaml
 
-base_cfg, out_cfg, task_root, data_path, max_iters, eval_timeout, recompile_timeout = sys.argv[1:]
+(
+    base_cfg,
+    out_cfg,
+    task_root,
+    data_path,
+    max_iters,
+    eval_timeout,
+    recompile_timeout,
+    n_samples_per_prompt,
+) = sys.argv[1:]
 with open(base_cfg, "r") as f:
     cfg = yaml.safe_load(f)
 
@@ -143,6 +152,8 @@ cfg["paths"]["transcript_dir"] = os.path.join(task_root, "transcripts")
 cfg["experiment"]["max_iters"] = int(max_iters)
 cfg["evaluation"]["eval_timeout"] = int(eval_timeout)
 cfg["compilation"]["recompile_timeout"] = int(recompile_timeout)
+cfg.setdefault("database", {})
+cfg["database"]["num_islands"] = int(n_samples_per_prompt)
 
 os.makedirs(os.path.dirname(out_cfg), exist_ok=True)
 with open(out_cfg, "w") as f:

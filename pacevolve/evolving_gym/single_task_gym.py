@@ -282,9 +282,10 @@ class PACEvolveSingleTaskGym:
         self._eval_semaphore = asyncio.Semaphore(max_concurrent_evaluations)
         self._generation_counter = 0
         self._lock = threading.Lock()
-        self._pending_context: Dict[str, List[Dict[str, Any]]] = {}  # list of context copies per parent
+        self._pending_context: Dict[str, Dict[str, Any]] = {}  # one context per parent
         self._n_samples_per_prompt = n_samples_per_prompt
         self._ablation_list: List[str] = []
+        self.num_islands = num_islands
 
         # PACEvolve workflow parameters (mirror run_experiment.py args)
         self._use_idea_repo = kwargs.get("use_idea_repo", True)
@@ -678,7 +679,9 @@ Original policy output:
     # problem_generator  (SLIME interface)
     # ------------------------------------------------------------------
 
-    def problem_generator(self) -> Tuple[Dict[str, str], ParentProgram]:
+    def _problem_generator_impl(
+        self, forced_island_id: Optional[int] = None
+    ) -> Tuple[Dict[str, str], ParentProgram]:
         """Build the idea-generation + selection prompt for the trained policy.
 
         The trained policy will generate 3 hypotheses and select one.
@@ -697,7 +700,11 @@ Original policy output:
             trigger_backtrack = False
             last_bt_iter = False
 
-            parent_code, island_id = self._programs_db.get_candidate()
+            if forced_island_id is None:
+                parent_code, island_id = self._programs_db.get_candidate()
+            else:
+                island_id = forced_island_id
+                parent_code, _ = self._programs_db.get_candidate_for_island(island_id)
 
             # Check ongoing backtrack for this island
             bt_idx = self._backtrack_triggered_idx.get(island_id, -1)
@@ -796,15 +803,25 @@ Original policy output:
             "repo_idx_before_backtrack": self._repo_idx_before_backtrack.get(island_id, 0),
         }
         with self._lock:
-            self._pending_context[parent_id] = [
-                deepcopy(context) for _ in range(self._n_samples_per_prompt)
-            ]
+            self._pending_context[parent_id] = context
 
         prompt_dict = {
             "system": "",
             "user": user_text,
         }
         return prompt_dict, parent
+
+    def problem_generator(self) -> Tuple[Dict[str, str], ParentProgram]:
+        return self._problem_generator_impl(forced_island_id=None)
+
+    def problem_generator_for_island(
+        self, island_id: int
+    ) -> Tuple[Dict[str, str], ParentProgram]:
+        if island_id < 0 or island_id >= self.num_islands:
+            raise ValueError(
+                f"Invalid island_id={island_id}, expected [0, {self.num_islands - 1}]"
+            )
+        return self._problem_generator_impl(forced_island_id=island_id)
 
     # ------------------------------------------------------------------
     # response_scorer  (SLIME interface)
@@ -882,15 +899,9 @@ Original policy output:
             ContentChunk = llm_utils.ContentChunk
             AlgorithmTrial = workflow_utils.AlgorithmTrial
 
-            # Retrieve pending context stored by problem_generator (one copy per sample)
+            # Retrieve pending context stored by problem_generator (one context per parent)
             with self._lock:
-                stack = self._pending_context.get(parent_program.id)
-                if stack:
-                    pending = stack.pop()
-                    if not stack:
-                        del self._pending_context[parent_program.id]
-                else:
-                    pending = None
+                pending = self._pending_context.pop(parent_program.id, None)
             if pending is None:
                 logger.error("No pending context for parent_program %s", parent_program.id)
                 return self._make_error_result(parent_program, "no_pending_context", t0=t0)

@@ -99,7 +99,9 @@ async def pacevolve_gym_rm(args, sample) -> Dict[str, Any]:
             from pacevolve.evolving_gym.record_context import get_rollout_id
             rid = get_rollout_id()
             if rid is not None:
-                sample_index = getattr(sample, "index", 0)
+                sample_index = metadata.get("record_sample_index")
+                if not isinstance(sample_index, int):
+                    sample_index = int(getattr(sample, "index", 0))
                 _GYM.set_record_context(rid, sample_index)
         except Exception:
             pass
