@@ -139,6 +139,15 @@ PERF_ARGS=(
   --max-tokens-per-gpu 2048
 )
 
+GRPO_ARGS=(
+  --advantage-estimator grpo
+  --entropy-coef 0.00
+  --eps-clip 0.2
+  --eps-clip-high 0.28
+
+  --use-tis
+)
+
 PKPO_ARGS=(
   --advantage-estimator pkpo
   --pkpo-k ${PKPO_K:-4}
@@ -151,6 +160,14 @@ PKPO_ARGS=(
 
 if [ -n "${PKPO_K_ANNEAL_STEP}" ]; then
   PKPO_ARGS+=(--pkpo-k-anneal-step ${PKPO_K_ANNEAL_STEP} --pkpo-k-anneal-target ${PKPO_K_ANNEAL_TARGET:-1})
+fi
+
+# Select algorithm args based on ADVANTAGE_ESTIMATOR_ALGORITHM (PKPO or GRPO)
+ALG="${ADVANTAGE_ESTIMATOR_ALGORITHM:-PKPO}"
+if [ "${ALG}" = "GRPO" ] || [ "${ALG}" = "grpo" ]; then
+  ALGORITHM_ARGS=("${GRPO_ARGS[@]}")
+else
+  ALGORITHM_ARGS=("${PKPO_ARGS[@]}")
 fi
 
 OPTIMIZER_ARGS=(
@@ -238,7 +255,7 @@ ray job submit --address="http://127.0.0.1:8265" \
   ${CKPT_ARGS[@]} \
   ${ROLLOUT_ARGS[@]} \
   ${OPTIMIZER_ARGS[@]} \
-  ${PKPO_ARGS[@]} \
+  ${ALGORITHM_ARGS[@]} \
   ${DISTRIBUTED_ARGS[@]} \
   ${PERF_ARGS[@]} \
   ${SGLANG_ARGS[@]} \

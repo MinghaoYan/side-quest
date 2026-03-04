@@ -26,9 +26,16 @@ EPLB_RECOMPILE_TIMEOUT=120
 #### Training parameters ####
 REWARD_PROCESS_TYPE="rl_normalized_reward"
 
+#### Algorithm selection (PKPO or GRPO) ####
+ADVANTAGE_ESTIMATOR_ALGORITHM="GRPO"
+export ADVANTAGE_ESTIMATOR_ALGORITHM
+
 #### PKPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
 export PKPO_K=4
 export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
+
+#### GRPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
+# No extra env vars needed for GRPO; use ADVANTAGE_ESTIMATOR_ALGORITHM=GRPO to select
 
 #### PACEvolve workflow parameters ####
 export PACEVOLVE_BACKTRACK_FREQ=-1
@@ -199,6 +206,7 @@ echo "SEED:         ${SEED}"
 echo "IS_TRAINING:  ${IS_TRAINING}"
 echo "MAX_ITERS:    ${EPLB_MAX_ITERS}"
 echo "N_SAMPLES:    ${PACEVOLVE_N_SAMPLES_PER_PROMPT}"
+echo "ALGORITHM:    ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
 echo "PKPO_K:       ${PKPO_K}"
 echo "PKPO_ESTIMATOR_TYPE: ${PKPO_ESTIMATOR_TYPE}"
 echo "========================================"
