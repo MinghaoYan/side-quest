@@ -102,7 +102,8 @@ if [ ! -f "${EPLB_DATA_PATH}/expert-load.json" ]; then
     exit 1
 fi
 
-RUN_NAME="${SMALL_MODEL_NAME}_pacevolve_eplb_cfg${EPLB_CONFIG_ID}${POSTFIX_STR}"
+ALGO_STR=$(echo "${ADVANTAGE_ESTIMATOR_ALGORITHM}" | tr '[:upper:]' '[:lower:]')
+RUN_NAME="${SMALL_MODEL_NAME}_pacevolve_eplb_${ALGO_STR}_cfg${EPLB_CONFIG_ID}${POSTFIX_STR}"
 
 # Path configuration
 mkdir -p $SAVE_PATH
