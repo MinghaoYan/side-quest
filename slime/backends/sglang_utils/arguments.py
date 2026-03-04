@@ -113,8 +113,8 @@ def add_sglang_arguments(parser):
 
 
 def validate_args(args):
-    if parse(sglang.__version__) == parse("0.4.10") and getattr(args, "sglang_enable_ep_moe", False):
-        args.sglang_expert_parallel_size = args.rollout_num_gpus_per_engine
+    # if parse(sglang.__version__) == parse("0.4.10") and getattr(args, "sglang_enable_ep_moe", False):
+        # args.sglang_expert_parallel_size = args.rollout_num_gpus_per_engine
 
     args.sglang_tp_size = args.rollout_num_gpus_per_engine
     args.sglang_dp_size = args.sglang_data_parallel_size

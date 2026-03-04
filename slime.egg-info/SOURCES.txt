@@ -61,6 +61,7 @@ slime/rollout/rm_hub/evolving_gym_rm.py
 slime/rollout/rm_hub/f1.py
 slime/rollout/rm_hub/math_dapo_utils.py
 slime/rollout/rm_hub/math_utils.py
+slime/rollout/rm_hub/pacevolve_gym_rm.py
 slime/router/__init__.py
 slime/router/router.py
 slime/router/middleware_hub/__init__.py
