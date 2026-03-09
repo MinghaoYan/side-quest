@@ -20,6 +20,7 @@ else:
 import wandb
 from slime.ray.train_actor import TrainRayActor
 from slime.utils.data import get_minimum_num_micro_batch_size, process_rollout_data
+from slime.utils.pkpo_utils import get_hybrid_pkpo_grpo_advantages, get_pkpo_advantages
 from slime.utils.distributed_utils import get_gloo_group
 from slime.utils.memory_utils import clear_memory
 from slime.utils.ppo_utils import compute_approx_kl, compute_policy_loss
@@ -248,6 +249,44 @@ class FSDPTrainRayActor(TrainRayActor):
                 torch.tensor([rollout_data["rewards"][i]] * rollout_data["response_lengths"][i])
                 for i in range(len(rollout_data["rewards"]))
             ]
+        elif self.args.advantage_estimator == "pkpo":
+            zero_kl = [
+                torch.zeros(rollout_data["response_lengths"][i], dtype=torch.float32)
+                for i in range(len(rollout_data["rewards"]))
+            ]
+            advantages, _ = get_pkpo_advantages(
+                rewards=torch.tensor(rollout_data["rewards"], dtype=torch.float32),
+                kl=zero_kl,
+                n_samples_per_prompt=self.args.n_samples_per_prompt,
+                k=self.args.pkpo_k,
+                kl_coef=0.0,
+                estimator_type=self.args.pkpo_estimator_type,
+            )
+            rollout_data["advantages"] = rollout_data["returns"] = advantages
+        elif self.args.advantage_estimator == "hybrid_pkpo_grpo":
+            zero_kl = [
+                torch.zeros(rollout_data["response_lengths"][i], dtype=torch.float32)
+                for i in range(len(rollout_data["rewards"]))
+            ]
+            current_step = rollout_data.get("rollout_id", 0)
+            if (
+                self.args.hybrid_alpha_anneal_step is not None
+                and current_step >= self.args.hybrid_alpha_anneal_step
+            ):
+                effective_alpha = self.args.hybrid_alpha_anneal_target
+            else:
+                effective_alpha = self.args.hybrid_alpha
+            advantages, _ = get_hybrid_pkpo_grpo_advantages(
+                rewards=torch.tensor(rollout_data["rewards"], dtype=torch.float32),
+                kl=zero_kl,
+                n_samples_per_prompt=self.args.n_samples_per_prompt,
+                k=self.args.pkpo_k,
+                alpha=effective_alpha,
+                kl_coef=0.0,
+                estimator_type=self.args.pkpo_estimator_type,
+                grpo_variant=self.args.hybrid_grpo_variant,
+            )
+            rollout_data["advantages"] = rollout_data["returns"] = advantages
         else:
             raise NotImplementedError(f"Unsupported advantage_estimator {self.args.advantage_estimator}")
 

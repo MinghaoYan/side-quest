@@ -597,6 +597,7 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                     "grpo",
                     "dr_grpo",
                     "dr.grpo",
+                    "hybrid_pkpo_grpo",
                     "gspo",
                     "reinforce_plus_plus",
                     "reinforce_plus_plus_baseline",
@@ -630,6 +631,31 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 type=int,
                 default=1,
                 help="Target k after annealing (default: 1, i.e. optimize pass@1 after annealing step).",
+            )
+            parser.add_argument(
+                "--hybrid-alpha",
+                type=float,
+                default=0.5,
+                help="Blend weight for hybrid PKPO/GRPO advantages: (1-alpha)*GRPO + alpha*PKPO.",
+            )
+            parser.add_argument(
+                "--hybrid-alpha-anneal-step",
+                type=int,
+                default=None,
+                help="Step at which to switch hybrid_alpha to hybrid_alpha_anneal_target. None disables switching.",
+            )
+            parser.add_argument(
+                "--hybrid-alpha-anneal-target",
+                type=float,
+                default=0.5,
+                help="Target alpha after hybrid_alpha_anneal_step.",
+            )
+            parser.add_argument(
+                "--hybrid-grpo-variant",
+                type=str,
+                choices=["grpo", "dr_grpo", "dr.grpo"],
+                default="dr_grpo",
+                help="GRPO-side transform used inside the hybrid estimator.",
             )
             parser.add_argument(
                 "--entropic-kl-constraint",
@@ -1407,12 +1433,12 @@ def slime_validate_args(args):
         f"is not a multiple of global_batch_size {args.global_batch_size}"
     )
 
-    if args.advantage_estimator == "pkpo":
+    if args.advantage_estimator in ["pkpo", "hybrid_pkpo_grpo"]:
         assert args.n_samples_per_prompt >= 2, (
-            f"PKPO requires n_samples_per_prompt >= 2, got {args.n_samples_per_prompt}"
+            f"{args.advantage_estimator} requires n_samples_per_prompt >= 2, got {args.n_samples_per_prompt}"
         )
         assert 2 <= args.pkpo_k <= args.n_samples_per_prompt, (
-            f"PKPO requires 2 <= pkpo_k <= n_samples_per_prompt, "
+            f"{args.advantage_estimator} requires 2 <= pkpo_k <= n_samples_per_prompt, "
             f"got pkpo_k={args.pkpo_k}, n_samples_per_prompt={args.n_samples_per_prompt}"
         )
         if args.pkpo_k_anneal_step is not None:
@@ -1427,10 +1453,23 @@ def slime_validate_args(args):
     if args.advantage_estimator == "dr.grpo":
         args.advantage_estimator = "dr_grpo"
 
+    if args.hybrid_grpo_variant == "dr.grpo":
+        args.hybrid_grpo_variant = "dr_grpo"
+
     if args.advantage_estimator == "dr_grpo":
         args.grpo_std_normalization = False
         args.calculate_per_token_loss = True
         print("Dr. GRPO selected: disabling GRPO std normalization and enabling per-token loss reduction.")
+
+    if args.advantage_estimator == "hybrid_pkpo_grpo":
+        args.calculate_per_token_loss = True
+        assert 0.0 <= args.hybrid_alpha <= 1.0, (
+            f"hybrid_alpha must be in [0, 1], got {args.hybrid_alpha}"
+        )
+        assert 0.0 <= args.hybrid_alpha_anneal_target <= 1.0, (
+            f"hybrid_alpha_anneal_target must be in [0, 1], got {args.hybrid_alpha_anneal_target}"
+        )
+        print("Hybrid PKPO/GRPO selected: enabling per-token loss reduction.")
 
     if args.over_sampling_batch_size is None:
         args.over_sampling_batch_size = args.rollout_batch_size

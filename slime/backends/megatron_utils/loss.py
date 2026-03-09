@@ -15,7 +15,7 @@ from slime.utils.ppo_utils import (
     get_reinforce_plus_plus_returns,
 )
 from slime.utils.entropic_utils import get_entropic_returns
-from slime.utils.pkpo_utils import get_pkpo_advantages
+from slime.utils.pkpo_utils import get_hybrid_pkpo_grpo_advantages, get_pkpo_advantages
 
 from .cp_utils import all_gather_with_cp, get_logits_and_tokens_offset_with_cp, get_sum_of_sample_mean
 
@@ -270,6 +270,48 @@ def compute_advantages_and_returns(args, rollout_data):
             print(f"[DEBUG] PKPO k={effective_k}, estimator={pkpo_estimator_type}, "
                   f"reward_mean={pkpo_stats['pkpo_reward_mean']:.4f}, "
                   f"reward_std={pkpo_stats['pkpo_reward_std']:.4f}")
+
+    elif args.advantage_estimator == "hybrid_pkpo_grpo":
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=kl[0].device)
+        print(f"[DEBUG] Hybrid rewards tensor stats: min={rewards.min().item():.6f}, max={rewards.max().item():.6f}, mean={rewards.mean().item():.6f}")
+
+        pkpo_k = getattr(args, "pkpo_k", 4)
+        pkpo_estimator_type = getattr(args, "pkpo_estimator_type", "sloo_minus_one")
+        hybrid_alpha = getattr(args, "hybrid_alpha", 0.5)
+        hybrid_alpha_anneal_step = getattr(args, "hybrid_alpha_anneal_step", None)
+        hybrid_alpha_anneal_target = getattr(args, "hybrid_alpha_anneal_target", hybrid_alpha)
+        hybrid_grpo_variant = getattr(args, "hybrid_grpo_variant", "dr_grpo")
+
+        current_step = rollout_data.get("rollout_id", 0)
+        if hybrid_alpha_anneal_step is not None and current_step >= hybrid_alpha_anneal_step:
+            effective_alpha = hybrid_alpha_anneal_target
+        else:
+            effective_alpha = hybrid_alpha
+
+        if pkpo_k <= 1:
+            returns = get_grpo_returns(rewards, kl)
+            advantages = [r for r in returns]
+            print("[DEBUG] Hybrid estimator with pkpo_k<=1 fell back to GRPO-style returns")
+        else:
+            advantages, hybrid_stats = get_hybrid_pkpo_grpo_advantages(
+                rewards=rewards,
+                kl=kl,
+                n_samples_per_prompt=args.n_samples_per_prompt,
+                k=pkpo_k,
+                alpha=effective_alpha,
+                kl_coef=args.kl_coef,
+                estimator_type=pkpo_estimator_type,
+                grpo_variant=hybrid_grpo_variant,
+            )
+            returns = [a.clone() for a in advantages]
+            print(
+                f"[DEBUG] Hybrid alpha={hybrid_stats['hybrid_alpha']:.4f}, "
+                f"grpo_variant={hybrid_stats['hybrid_grpo_variant']}, "
+                f"pkpo_k={hybrid_stats['hybrid_pkpo_k']}, "
+                f"pkpo_estimator={hybrid_stats['hybrid_pkpo_estimator']}, "
+                f"reward_mean={hybrid_stats['hybrid_reward_mean']:.4f}, "
+                f"reward_std={hybrid_stats['hybrid_reward_std']:.4f}"
+            )
 
     else:
         raise NotImplementedError(f"advantage_estimator {args.advantage_estimator} is not supported. ")

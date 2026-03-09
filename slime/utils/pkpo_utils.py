@@ -214,6 +214,124 @@ def pkpo_transform_rewards(
     return transformed
 
 
+def _group_sizes_from_batch_size(B: int, n_samples_per_prompt: int) -> List[int]:
+    if B % n_samples_per_prompt != 0:
+        return [B]
+    return [n_samples_per_prompt] * (B // n_samples_per_prompt)
+
+
+def grpo_transform_rewards(
+    rewards: torch.Tensor,
+    n_samples_per_prompt: int,
+    std_normalization: bool = False,
+    epsilon: float = 1e-6,
+) -> torch.Tensor:
+    """Apply GRPO/Dr.GRPO-style reward centering per prompt group.
+
+    Args:
+        rewards: Flat tensor of rewards [B].
+        n_samples_per_prompt: Number of samples per prompt.
+        std_normalization: Whether to divide each group by its std (vanilla GRPO).
+            When False, this matches the Dr.GRPO-style centered reward transform.
+        epsilon: Numerical stability constant for std normalization.
+
+    Returns:
+        Transformed rewards of shape [B].
+    """
+    B = rewards.numel()
+    transformed = torch.zeros_like(rewards)
+    offset = 0
+    for gs in _group_sizes_from_batch_size(B, n_samples_per_prompt):
+        group_rewards = rewards[offset : offset + gs]
+        group_rewards = group_rewards - group_rewards.mean()
+        if std_normalization:
+            group_std = group_rewards.std(unbiased=False)
+            if torch.isfinite(group_std) and group_std > epsilon:
+                group_rewards = group_rewards / (group_std + epsilon)
+            else:
+                group_rewards = torch.zeros_like(group_rewards)
+        transformed[offset : offset + gs] = group_rewards
+        offset += gs
+    return transformed
+
+
+def _batch_standardize(scores: torch.Tensor, epsilon: float = 1e-6) -> torch.Tensor:
+    """Standardize scores across the full batch to keep hybrid scales comparable."""
+    centered = scores - scores.mean()
+    std = centered.std(unbiased=False)
+    if not torch.isfinite(std) or std <= epsilon:
+        return torch.zeros_like(centered)
+    return centered / (std + epsilon)
+
+
+def get_hybrid_pkpo_grpo_advantages(
+    rewards: torch.Tensor,
+    kl: List[torch.Tensor],
+    n_samples_per_prompt: int,
+    k: int,
+    alpha: float = 0.5,
+    kl_coef: float = 0.0,
+    estimator_type: str = "sloo_minus_one",
+    grpo_variant: str = "dr_grpo",
+) -> Tuple[List[torch.Tensor], dict]:
+    """Blend PKPO and (Dr.)GRPO scalar advantages, then broadcast to token level.
+
+    The blend is performed at the per-sample advantage level:
+        hybrid = (1 - alpha) * normalized_grpo + alpha * normalized_pkpo
+
+    We normalize both branches at the batch level before mixing so neither branch
+    dominates purely due to scale mismatch.
+    """
+    B = len(rewards)
+    device = kl[0].device if kl else torch.device("cpu")
+
+    if not isinstance(rewards, torch.Tensor):
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
+    rewards = rewards.float().to(device)
+
+    std_normalization = grpo_variant == "grpo"
+    grpo_scores = grpo_transform_rewards(
+        rewards,
+        n_samples_per_prompt=n_samples_per_prompt,
+        std_normalization=std_normalization,
+    )
+    pkpo_scores = pkpo_transform_rewards(
+        rewards,
+        n_samples_per_prompt=n_samples_per_prompt,
+        k=k,
+        estimator_type=estimator_type,
+    )
+
+    grpo_scores = _batch_standardize(grpo_scores)
+    pkpo_scores = _batch_standardize(pkpo_scores)
+    hybrid_scores = _batch_standardize((1.0 - alpha) * grpo_scores + alpha * pkpo_scores)
+
+    stats = {
+        "hybrid_alpha": float(alpha),
+        "hybrid_grpo_variant": grpo_variant,
+        "hybrid_pkpo_k": k,
+        "hybrid_pkpo_estimator": estimator_type,
+        "hybrid_grpo_mean": grpo_scores.mean().item(),
+        "hybrid_grpo_std": grpo_scores.std(unbiased=False).item(),
+        "hybrid_pkpo_mean": pkpo_scores.mean().item(),
+        "hybrid_pkpo_std": pkpo_scores.std(unbiased=False).item(),
+        "hybrid_reward_mean": hybrid_scores.mean().item(),
+        "hybrid_reward_std": hybrid_scores.std(unbiased=False).item(),
+        "hybrid_reward_max": hybrid_scores.max().item(),
+        "hybrid_reward_min": hybrid_scores.min().item(),
+    }
+
+    token_advantages = []
+    for i in range(B):
+        adv_scalar = hybrid_scores[i]
+        token_adv = torch.ones_like(kl[i]) * adv_scalar
+        if kl_coef > 0:
+            token_adv = token_adv - kl_coef * kl[i]
+        token_advantages.append(token_adv)
+
+    return token_advantages, stats
+
+
 def get_pkpo_advantages(
     rewards: torch.Tensor,
     kl: List[torch.Tensor],

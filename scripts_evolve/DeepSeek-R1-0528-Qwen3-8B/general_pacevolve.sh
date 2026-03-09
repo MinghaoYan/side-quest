@@ -157,6 +157,20 @@ DR_GRPO_ARGS=(
   --use-tis
 )
 
+HYBRID_PKPO_GRPO_ARGS=(
+  --advantage-estimator hybrid_pkpo_grpo
+  --pkpo-k ${PKPO_K:-4}
+  --pkpo-estimator-type ${PKPO_ESTIMATOR_TYPE:-sloo_minus_one}
+  --hybrid-alpha ${HYBRID_ALPHA:-0.5}
+  --hybrid-alpha-anneal-target ${HYBRID_ALPHA_ANNEAL_TARGET:-0.5}
+  --hybrid-grpo-variant ${HYBRID_GRPO_VARIANT:-dr_grpo}
+  --entropy-coef 0.00
+  --eps-clip 0.2
+  --eps-clip-high 0.28
+  --kl-coef -0.0
+  --use-tis
+)
+
 PKPO_ARGS=(
   --advantage-estimator pkpo
   --pkpo-k ${PKPO_K:-4}
@@ -180,6 +194,10 @@ if [ -n "${PKPO_K_ANNEAL_STEP}" ]; then
   PKPO_ARGS+=(--pkpo-k-anneal-step ${PKPO_K_ANNEAL_STEP} --pkpo-k-anneal-target ${PKPO_K_ANNEAL_TARGET:-1})
 fi
 
+if [ -n "${HYBRID_ALPHA_ANNEAL_STEP}" ]; then
+  HYBRID_PKPO_GRPO_ARGS+=(--hybrid-alpha-anneal-step ${HYBRID_ALPHA_ANNEAL_STEP})
+fi
+
 # Select algorithm args based on ADVANTAGE_ESTIMATOR_ALGORITHM.
 ALG="${ADVANTAGE_ESTIMATOR_ALGORITHM:-PKPO}"
 ALG_NORMALIZED=$(printf '%s' "${ALG}" | tr '[:upper:]' '[:lower:]')
@@ -190,6 +208,9 @@ case "${ALG_NORMALIZED}" in
   dr_grpo|dr.grpo)
     ALGORITHM_ARGS=("${DR_GRPO_ARGS[@]}")
     ;;
+  hybrid_pkpo_grpo)
+    ALGORITHM_ARGS=("${HYBRID_PKPO_GRPO_ARGS[@]}")
+    ;;
   pkpo)
     ALGORITHM_ARGS=("${PKPO_ARGS[@]}")
     ;;
@@ -198,7 +219,7 @@ case "${ALG_NORMALIZED}" in
     ;;
   *)
     echo "Unsupported ADVANTAGE_ESTIMATOR_ALGORITHM: ${ALG}"
-    echo "Expected one of: GRPO, DR_GRPO, PKPO, ENTROPIC"
+    echo "Expected one of: GRPO, DR_GRPO, HYBRID_PKPO_GRPO, PKPO, ENTROPIC"
     exit 1
     ;;
 esac
