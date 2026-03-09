@@ -158,17 +158,38 @@ PKPO_ARGS=(
   --use-tis
 )
 
+ENTROPIC_ARGS=(
+  --advantage-estimator entropic
+  --entropic-kl-constraint ${ENTROPIC_KL_CONSTRAINT:-0.6931471805599453}
+  --eps-clip 0.2
+  --eps-clip-high 0.28
+
+  --use-tis
+)
+
 if [ -n "${PKPO_K_ANNEAL_STEP}" ]; then
   PKPO_ARGS+=(--pkpo-k-anneal-step ${PKPO_K_ANNEAL_STEP} --pkpo-k-anneal-target ${PKPO_K_ANNEAL_TARGET:-1})
 fi
 
-# Select algorithm args based on ADVANTAGE_ESTIMATOR_ALGORITHM (PKPO or GRPO)
+# Select algorithm args based on ADVANTAGE_ESTIMATOR_ALGORITHM.
 ALG="${ADVANTAGE_ESTIMATOR_ALGORITHM:-PKPO}"
-if [ "${ALG}" = "GRPO" ] || [ "${ALG}" = "grpo" ]; then
-  ALGORITHM_ARGS=("${GRPO_ARGS[@]}")
-else
-  ALGORITHM_ARGS=("${PKPO_ARGS[@]}")
-fi
+ALG_NORMALIZED=$(printf '%s' "${ALG}" | tr '[:upper:]' '[:lower:]')
+case "${ALG_NORMALIZED}" in
+  grpo)
+    ALGORITHM_ARGS=("${GRPO_ARGS[@]}")
+    ;;
+  pkpo)
+    ALGORITHM_ARGS=("${PKPO_ARGS[@]}")
+    ;;
+  entropic)
+    ALGORITHM_ARGS=("${ENTROPIC_ARGS[@]}")
+    ;;
+  *)
+    echo "Unsupported ADVANTAGE_ESTIMATOR_ALGORITHM: ${ALG}"
+    echo "Expected one of: GRPO, PKPO, ENTROPIC"
+    exit 1
+    ;;
+esac
 
 OPTIMIZER_ARGS=(
   --optimizer adam
@@ -193,6 +214,7 @@ SGLANG_ARGS=(
 MISC_ARGS=(
   ${DEBUG_ROLLOUT_ONLY}
   --seed ${SEED}
+  --kl-coef ${KL_COEF:-0.0}
   --attention-dropout 0.0
   --hidden-dropout 0.0
   --accumulate-allreduce-grads-in-fp32

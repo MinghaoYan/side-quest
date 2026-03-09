@@ -25,14 +25,21 @@ EPLB_RECOMPILE_TIMEOUT=120
 
 #### Training parameters ####
 REWARD_PROCESS_TYPE="rl_normalized_reward"
+KL_COEF=0.1
 
-#### Algorithm selection (PKPO or GRPO) ####
-ADVANTAGE_ESTIMATOR_ALGORITHM="GRPO"
+#### Algorithm selection (ENTROPIC, PKPO, or GRPO) ####
+# TTT-Discover uses the entropic objective with adaptive beta.
+ADVANTAGE_ESTIMATOR_ALGORITHM="ENTROPIC"
 export ADVANTAGE_ESTIMATOR_ALGORITHM
+export KL_COEF
 
 #### PKPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
 export PKPO_K=4
 export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
+
+#### Entropic-specific parameters (passed to general_pacevolve.sh via env vars) ####
+# TTT-main / TTT-Discover uses gamma = ln(2) for the adaptive beta KL budget.
+export ENTROPIC_KL_CONSTRAINT=0.6931471805599453
 
 #### GRPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
 # No extra env vars needed for GRPO; use ADVANTAGE_ESTIMATOR_ALGORITHM=GRPO to select
@@ -208,6 +215,8 @@ echo "IS_TRAINING:  ${IS_TRAINING}"
 echo "MAX_ITERS:    ${EPLB_MAX_ITERS}"
 echo "N_SAMPLES:    ${PACEVOLVE_N_SAMPLES_PER_PROMPT}"
 echo "ALGORITHM:    ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
+echo "KL_COEF:      ${KL_COEF}"
+echo "ENTROPIC_GAMMA: ${ENTROPIC_KL_CONSTRAINT}"
 echo "PKPO_K:       ${PKPO_K}"
 echo "PKPO_ESTIMATOR_TYPE: ${PKPO_ESTIMATOR_TYPE}"
 echo "========================================"
