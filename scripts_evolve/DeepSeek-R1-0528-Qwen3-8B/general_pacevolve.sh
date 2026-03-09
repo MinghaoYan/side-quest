@@ -144,7 +144,16 @@ GRPO_ARGS=(
   --entropy-coef 0.00
   --eps-clip 0.2
   --eps-clip-high 0.28
+  --kl-coef -0.0
+  --use-tis
+)
 
+DR_GRPO_ARGS=(
+  --advantage-estimator dr_grpo
+  --entropy-coef 0.00
+  --eps-clip 0.2
+  --eps-clip-high 0.28
+  --kl-coef -0.0
   --use-tis
 )
 
@@ -163,7 +172,7 @@ ENTROPIC_ARGS=(
   --entropic-kl-constraint ${ENTROPIC_KL_CONSTRAINT:-0.6931471805599453}
   --eps-clip 0.2
   --eps-clip-high 0.28
-
+  --kl-coef ${KL_COEF:-0.0}
   --use-tis
 )
 
@@ -178,6 +187,9 @@ case "${ALG_NORMALIZED}" in
   grpo)
     ALGORITHM_ARGS=("${GRPO_ARGS[@]}")
     ;;
+  dr_grpo|dr.grpo)
+    ALGORITHM_ARGS=("${DR_GRPO_ARGS[@]}")
+    ;;
   pkpo)
     ALGORITHM_ARGS=("${PKPO_ARGS[@]}")
     ;;
@@ -186,7 +198,7 @@ case "${ALG_NORMALIZED}" in
     ;;
   *)
     echo "Unsupported ADVANTAGE_ESTIMATOR_ALGORITHM: ${ALG}"
-    echo "Expected one of: GRPO, PKPO, ENTROPIC"
+    echo "Expected one of: GRPO, DR_GRPO, PKPO, ENTROPIC"
     exit 1
     ;;
 esac
@@ -214,7 +226,6 @@ SGLANG_ARGS=(
 MISC_ARGS=(
   ${DEBUG_ROLLOUT_ONLY}
   --seed ${SEED}
-  --kl-coef ${KL_COEF:-0.0}
   --attention-dropout 0.0
   --hidden-dropout 0.0
   --accumulate-allreduce-grads-in-fp32

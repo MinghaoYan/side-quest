@@ -220,7 +220,7 @@ class RolloutManager:
             return raw_rewards, raw_rewards
 
         if (
-            self.args.advantage_estimator in ["grpo", "gspo", "reinforce_plus_plus_baseline"]
+            self.args.advantage_estimator in ["grpo", "dr_grpo", "gspo", "reinforce_plus_plus_baseline"]
             and self.args.rewards_normalization
         ):
             # group norm
@@ -233,7 +233,7 @@ class RolloutManager:
             mean = rewards.mean(dim=-1, keepdim=True)
             rewards = rewards - mean
 
-            if self.args.advantage_estimator in ["grpo", "gspo"] and self.args.grpo_std_normalization:
+            if self.args.advantage_estimator in ["grpo", "dr_grpo", "gspo"] and self.args.grpo_std_normalization:
                 std = rewards.std(dim=-1, keepdim=True)
                 rewards = rewards / (std + 1e-6)
 

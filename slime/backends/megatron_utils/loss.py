@@ -160,7 +160,7 @@ def compute_advantages_and_returns(args, rollout_data):
             for i in range(len(log_probs))
         ]
 
-    if args.advantage_estimator in ["grpo", "gspo"]:
+    if args.advantage_estimator in ["grpo", "dr_grpo", "gspo"]:
         # print(f"[DEBUG] GRPO rewards: {rewards}")
         rewards = torch.tensor(rewards, dtype=torch.float32, device=kl[0].device)
         print(f"[DEBUG] Rewards tensor stats: min={rewards.min().item():.6f}, max={rewards.max().item():.6f}, mean={rewards.mean().item():.6f}")

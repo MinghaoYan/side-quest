@@ -27,7 +27,7 @@ EPLB_RECOMPILE_TIMEOUT=120
 REWARD_PROCESS_TYPE="rl_normalized_reward"
 KL_COEF=0.1
 
-#### Algorithm selection (ENTROPIC, PKPO, or GRPO) ####
+#### Algorithm selection (ENTROPIC, PKPO, DR_GRPO, or GRPO) ####
 # TTT-Discover uses the entropic objective with adaptive beta.
 ADVANTAGE_ESTIMATOR_ALGORITHM="ENTROPIC"
 export ADVANTAGE_ESTIMATOR_ALGORITHM
@@ -42,7 +42,8 @@ export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
 export ENTROPIC_KL_CONSTRAINT=0.6931471805599453
 
 #### GRPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
-# No extra env vars needed for GRPO; use ADVANTAGE_ESTIMATOR_ALGORITHM=GRPO to select
+# Use ADVANTAGE_ESTIMATOR_ALGORITHM=GRPO for vanilla GRPO
+# or ADVANTAGE_ESTIMATOR_ALGORITHM=DR_GRPO for the unbiased Dr. GRPO variant.
 
 #### PACEvolve workflow parameters ####
 export PACEVOLVE_BACKTRACK_FREQ=-1

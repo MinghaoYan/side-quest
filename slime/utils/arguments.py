@@ -593,7 +593,17 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
             parser.add_argument(
                 "--advantage-estimator",
                 type=str,
-                choices=["grpo", "gspo", "reinforce_plus_plus", "reinforce_plus_plus_baseline", "ppo", "entropic", "pkpo"],
+                choices=[
+                    "grpo",
+                    "dr_grpo",
+                    "dr.grpo",
+                    "gspo",
+                    "reinforce_plus_plus",
+                    "reinforce_plus_plus_baseline",
+                    "ppo",
+                    "entropic",
+                    "pkpo",
+                ],
                 default="grpo",
             )
             parser.add_argument(
@@ -1413,6 +1423,14 @@ def slime_validate_args(args):
     if args.n_samples_per_prompt == 1:
         args.grpo_std_normalization = False
         print("n_samples_per_prompt is set to 1, grpo_std_normalization will be set to False.")
+
+    if args.advantage_estimator == "dr.grpo":
+        args.advantage_estimator = "dr_grpo"
+
+    if args.advantage_estimator == "dr_grpo":
+        args.grpo_std_normalization = False
+        args.calculate_per_token_loss = True
+        print("Dr. GRPO selected: disabling GRPO std normalization and enabling per-token loss reduction.")
 
     if args.over_sampling_batch_size is None:
         args.over_sampling_batch_size = args.rollout_batch_size
