@@ -17,7 +17,7 @@ from slime.utils.ppo_utils import (
 from slime.utils.entropic_utils import get_entropic_returns
 from slime.utils.pkpo_utils import get_hybrid_pkpo_grpo_advantages, get_pkpo_advantages
 
-from .cp_utils import all_gather_with_cp, get_logits_and_tokens_offset_with_cp, get_sum_of_sample_mean
+from .cp_utils import all_gather_with_cp, get_logits_and_tokens_offset_with_cp, get_sum_of_sample_mean, get_sum_of_sample_sum
 
 
 def get_responses(
@@ -418,8 +418,12 @@ def policy_loss_function(args, batch, logits, sum_of_sample_mean):
         log_probs = torch.cat(log_probs, dim=0)
         ppo_kl = old_log_probs - log_probs
 
-
-    pg_loss, pg_clipfrac = compute_policy_loss(ppo_kl, advantages, args.eps_clip, args.eps_clip_high)
+    # TTT-Discover uses vanilla policy gradient (no PPO ratio clipping) for entropic objective
+    if args.advantage_estimator == "entropic":
+        pg_loss = -log_probs * advantages
+        pg_clipfrac = torch.zeros_like(pg_loss)
+    else:
+        pg_loss, pg_clipfrac = compute_policy_loss(ppo_kl, advantages, args.eps_clip, args.eps_clip_high)
 
     # Apply TIS off-policy correction using importance sampling if enabled
     if args.use_tis:
@@ -437,7 +441,18 @@ def policy_loss_function(args, batch, logits, sum_of_sample_mean):
 
         pg_loss = pg_loss * tis_clip
 
-    pg_loss = sum_of_sample_mean(pg_loss)
+    if args.advantage_estimator == "entropic":
+        # TTT-Discover optimizes a trajectory-level PG objective, so use the
+        # sum of token log-probabilities within each response instead of the
+        # default response-length-normalized mean.
+        sum_of_sample_sum = get_sum_of_sample_sum(
+            batch["total_lengths"],
+            batch["response_lengths"],
+            batch["loss_masks"],
+        )
+        pg_loss = sum_of_sample_sum(pg_loss)
+    else:
+        pg_loss = sum_of_sample_mean(pg_loss)
     # print(f"[DEBUG policy_loss] After sum_of_sample_mean: pg_loss={pg_loss.item():.10f}, max_abs={pg_loss.abs().item():.6f}, shape={pg_loss.shape}")
 
     pg_clipfrac = sum_of_sample_mean(pg_clipfrac)

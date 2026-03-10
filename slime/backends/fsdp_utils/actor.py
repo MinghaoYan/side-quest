@@ -356,7 +356,12 @@ class FSDPTrainRayActor(TrainRayActor):
             # Ensure device consistency
             ppo_kl = old_log_probs.to(device=log_probs.device) - log_probs
             advantages = advantages.to(device=ppo_kl.device)
-            pg_loss, pg_clipfrac = compute_policy_loss(ppo_kl, advantages, self.args.eps_clip, self.args.eps_clip_high)
+            # TTT-Discover uses vanilla policy gradient (no PPO ratio clipping) for entropic
+            if self.args.advantage_estimator == "entropic":
+                pg_loss = -log_probs * advantages
+                pg_clipfrac = torch.zeros_like(pg_loss)
+            else:
+                pg_loss, pg_clipfrac = compute_policy_loss(ppo_kl, advantages, self.args.eps_clip, self.args.eps_clip_high)
 
             # Apply TIS before sample mean calculation
             if self.args.use_tis:
@@ -384,7 +389,10 @@ class FSDPTrainRayActor(TrainRayActor):
 
                 pg_loss = pg_loss * tis_clip
 
-            pg_loss = sum_of_sample_mean(pg_loss, response_lengths, loss_masks)
+            if self.args.advantage_estimator == "entropic":
+                pg_loss = sum_of_sample_sum(pg_loss, response_lengths, loss_masks)
+            else:
+                pg_loss = sum_of_sample_mean(pg_loss, response_lengths, loss_masks)
             pg_clipfrac = sum_of_sample_mean(pg_clipfrac, response_lengths, loss_masks)
             ppo_kl = sum_of_sample_mean(ppo_kl.abs(), response_lengths, loss_masks)
 
@@ -433,7 +441,9 @@ class FSDPTrainRayActor(TrainRayActor):
 
             if (mbs_id + 1) in grad_accum:
                 # TODO: check if the grad norm is global grad norm.
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip_grad)
+                # clip_grad <= 0 means no clipping (e.g. entropic/TTT-Discover setup)
+                max_norm = self.args.clip_grad if self.args.clip_grad > 0 else float("inf")
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm)
                 self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
                 # Aggregate logs
@@ -599,3 +609,8 @@ def sum_of_sample_mean(x: torch.Tensor, response_lengths: list[int], loss_masks:
             for x_i, loss_mask_i in zip(x.split(response_lengths, dim=0), loss_masks)
         ]
     )
+
+
+def sum_of_sample_sum(x: torch.Tensor, response_lengths: list[int], loss_masks: list[torch.Tensor]):
+
+    return sum([(x_i * loss_mask_i).sum() for x_i, loss_mask_i in zip(x.split(response_lengths, dim=0), loss_masks)])

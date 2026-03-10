@@ -103,6 +103,48 @@ def get_sum_of_sample_mean(
     return sum_of_sample_mean if not calculate_per_token_loss else sum_of_token
 
 
+def get_sum_of_sample_sum(
+    total_lengths,
+    response_lengths,
+    loss_masks,
+):
+    """
+    Sum token values within each sample, then sum across samples.
+
+    This is useful for trajectory-level policy gradient objectives where each
+    trajectory should contribute the sum of token log-probabilities rather than
+    a length-normalized mean.
+    """
+    cp_size = mpu.get_context_parallel_world_size()
+    if cp_size == 1:
+
+        def sum_of_sample_sum(x: torch.Tensor):
+            return sum([(x_i * loss_mask_i).sum() for x_i, loss_mask_i in zip(x.split(response_lengths, dim=0), loss_masks)])
+
+    else:
+        cp_chunk_lengths = []
+        chunked_loss_masks = []
+        for i, (total_length, response_length, loss_mask) in enumerate(
+            zip(total_lengths, response_lengths, loss_masks)
+        ):
+            prompt_length = total_length - response_length
+            _, _, _, tokens_offset = get_logits_and_tokens_offset_with_cp(total_length, response_length)
+            loss_mask_0 = loss_mask[tokens_offset[0][0] - prompt_length : tokens_offset[0][1] - prompt_length]
+            loss_mask_1 = loss_mask[tokens_offset[1][0] - prompt_length : tokens_offset[1][1] - prompt_length]
+            chunked_loss_masks.append(torch.cat([loss_mask_0, loss_mask_1], dim=0))
+            cp_chunk_lengths.append(chunked_loss_masks[i].size(0))
+
+        def sum_of_sample_sum(x: torch.Tensor):
+            return sum(
+                [
+                    (x_i * chunked_loss_mask).sum()
+                    for x_i, chunked_loss_mask in zip(x.split(cp_chunk_lengths, dim=0), chunked_loss_masks)
+                ]
+            )
+
+    return sum_of_sample_sum
+
+
 def all_gather_with_cp(tensor: torch.Tensor, total_length: int, response_length: int):
     """
     Gather tensors across all ranks in the context parallel group.

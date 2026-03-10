@@ -181,12 +181,17 @@ PKPO_ARGS=(
   --use-tis
 )
 
+# TTT-Discover (arXiv:2601.16175): vanilla PG, no gradient/ratio clipping, Table 9 hyperparams.
 ENTROPIC_ARGS=(
   --advantage-estimator entropic
   --entropic-kl-constraint ${ENTROPIC_KL_CONSTRAINT:-0.6931471805599453}
-  --eps-clip 0.2
-  --eps-clip-high 0.28
-  --kl-coef ${KL_COEF:-0.0}
+  --kl-coef ${KL_COEF:-0.1}
+  --entropy-coef 0.0
+  --clip-grad 0
+  --lr 4e-5
+  --adam-beta1 0.9
+  --adam-beta2 0.95
+  --adam-eps 1e-8
   --use-tis
 )
 

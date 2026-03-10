@@ -24,7 +24,6 @@ EPLB_EVAL_TIMEOUT=600
 EPLB_RECOMPILE_TIMEOUT=120
 
 #### Training parameters ####
-REWARD_PROCESS_TYPE="rl_normalized_reward"
 KL_COEF=0.1
 
 #### Algorithm selection (ENTROPIC, HYBRID_PKPO_GRPO, PKPO, DR_GRPO, or GRPO) ####
@@ -32,6 +31,40 @@ KL_COEF=0.1
 ADVANTAGE_ESTIMATOR_ALGORITHM="ENTROPIC"
 export ADVANTAGE_ESTIMATOR_ALGORITHM
 export KL_COEF
+
+#### Algorithm-specific reward processing ####
+# Keep evolution workflow unchanged, but allow RL-facing reward transforms to be
+# selected per algorithm. By default, entropic uses raw task reward while the
+# PPO-style estimators keep the normalized reward shaping.
+export ENTROPIC_REWARD_PROCESS_TYPE="original_reward"
+export GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
+export DR_GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
+export PKPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
+export HYBRID_PKPO_GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
+
+ALG_NORMALIZED=$(printf '%s' "${ADVANTAGE_ESTIMATOR_ALGORITHM}" | tr '[:upper:]' '[:lower:]')
+case "${ALG_NORMALIZED}" in
+    entropic)
+        REWARD_PROCESS_TYPE="${ENTROPIC_REWARD_PROCESS_TYPE}"
+        ;;
+    grpo)
+        REWARD_PROCESS_TYPE="${GRPO_REWARD_PROCESS_TYPE}"
+        ;;
+    dr_grpo|dr.grpo)
+        REWARD_PROCESS_TYPE="${DR_GRPO_REWARD_PROCESS_TYPE}"
+        ;;
+    pkpo)
+        REWARD_PROCESS_TYPE="${PKPO_REWARD_PROCESS_TYPE}"
+        ;;
+    hybrid_pkpo_grpo)
+        REWARD_PROCESS_TYPE="${HYBRID_PKPO_GRPO_REWARD_PROCESS_TYPE}"
+        ;;
+    *)
+        echo "Unsupported ADVANTAGE_ESTIMATOR_ALGORITHM: ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
+        exit 1
+        ;;
+esac
+export REWARD_PROCESS_TYPE
 
 #### PKPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
 export PKPO_K=4
@@ -226,6 +259,7 @@ echo "IS_TRAINING:  ${IS_TRAINING}"
 echo "MAX_ITERS:    ${EPLB_MAX_ITERS}"
 echo "N_SAMPLES:    ${PACEVOLVE_N_SAMPLES_PER_PROMPT}"
 echo "ALGORITHM:    ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
+echo "REWARD_PROCESS_TYPE: ${REWARD_PROCESS_TYPE}"
 echo "KL_COEF:      ${KL_COEF}"
 echo "ENTROPIC_GAMMA: ${ENTROPIC_KL_CONSTRAINT}"
 echo "PKPO_K:       ${PKPO_K}"
