@@ -162,8 +162,9 @@ HYBRID_PKPO_GRPO_ARGS=(
   --pkpo-k ${PKPO_K:-4}
   --pkpo-estimator-type ${PKPO_ESTIMATOR_TYPE:-sloo_minus_one}
   --hybrid-alpha ${HYBRID_ALPHA:-0.5}
-  --hybrid-alpha-anneal-target ${HYBRID_ALPHA_ANNEAL_TARGET:-0.5}
-  --hybrid-grpo-variant ${HYBRID_GRPO_VARIANT:-dr_grpo}
+  --hybrid-alpha-anneal-step ${HYBRID_ALPHA_ANNEAL_STEP:-200}
+  --hybrid-alpha-anneal-target ${HYBRID_ALPHA_ANNEAL_TARGET:-0.8}
+  --hybrid-grpo-variant ${HYBRID_GRPO_VARIANT:-grpo}
   --entropy-coef 0.00
   --eps-clip 0.2
   --eps-clip-high 0.28
@@ -185,7 +186,7 @@ PKPO_ARGS=(
 ENTROPIC_ARGS=(
   --advantage-estimator entropic
   --entropic-kl-constraint ${ENTROPIC_KL_CONSTRAINT:-0.6931471805599453}
-  --kl-coef ${KL_COEF:-0.1}
+  --kl-coef 0.1
   --entropy-coef 0.0
   --clip-grad 0
   --lr 4e-5
@@ -197,10 +198,6 @@ ENTROPIC_ARGS=(
 
 if [ -n "${PKPO_K_ANNEAL_STEP}" ]; then
   PKPO_ARGS+=(--pkpo-k-anneal-step ${PKPO_K_ANNEAL_STEP} --pkpo-k-anneal-target ${PKPO_K_ANNEAL_TARGET:-1})
-fi
-
-if [ -n "${HYBRID_ALPHA_ANNEAL_STEP}" ]; then
-  HYBRID_PKPO_GRPO_ARGS+=(--hybrid-alpha-anneal-step ${HYBRID_ALPHA_ANNEAL_STEP})
 fi
 
 # Select algorithm args based on ADVANTAGE_ESTIMATOR_ALGORITHM.

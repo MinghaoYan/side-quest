@@ -23,14 +23,10 @@ EPLB_MAX_ITERS=80
 EPLB_EVAL_TIMEOUT=600
 EPLB_RECOMPILE_TIMEOUT=120
 
-#### Training parameters ####
-KL_COEF=0.1
-
 #### Algorithm selection (ENTROPIC, HYBRID_PKPO_GRPO, PKPO, DR_GRPO, or GRPO) ####
 # TTT-Discover uses the entropic objective with adaptive beta.
 ADVANTAGE_ESTIMATOR_ALGORITHM="ENTROPIC"
 export ADVANTAGE_ESTIMATOR_ALGORITHM
-export KL_COEF
 
 #### Algorithm-specific reward processing ####
 # Keep evolution workflow unchanged, but allow RL-facing reward transforms to be
@@ -74,10 +70,9 @@ export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
 # The hybrid mixes normalized scalar advantages:
 #   (1 - alpha) * GRPO-side + alpha * PKPO-side
 export HYBRID_ALPHA=0.5
-# Optional step switch for alpha: leave empty to keep alpha fixed.
-# export HYBRID_ALPHA_ANNEAL_STEP=200
-export HYBRID_ALPHA_ANNEAL_TARGET=0.5
-export HYBRID_GRPO_VARIANT="dr_grpo"
+export HYBRID_ALPHA_ANNEAL_STEP=200
+export HYBRID_ALPHA_ANNEAL_TARGET=0.8
+export HYBRID_GRPO_VARIANT="grpo"
 
 #### Entropic-specific parameters (passed to general_pacevolve.sh via env vars) ####
 # TTT-main / TTT-Discover uses gamma = ln(2) for the adaptive beta KL budget.
@@ -260,11 +255,11 @@ echo "MAX_ITERS:    ${EPLB_MAX_ITERS}"
 echo "N_SAMPLES:    ${PACEVOLVE_N_SAMPLES_PER_PROMPT}"
 echo "ALGORITHM:    ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
 echo "REWARD_PROCESS_TYPE: ${REWARD_PROCESS_TYPE}"
-echo "KL_COEF:      ${KL_COEF}"
 echo "ENTROPIC_GAMMA: ${ENTROPIC_KL_CONSTRAINT}"
 echo "PKPO_K:       ${PKPO_K}"
 echo "PKPO_ESTIMATOR_TYPE: ${PKPO_ESTIMATOR_TYPE}"
 echo "HYBRID_ALPHA: ${HYBRID_ALPHA}"
+echo "HYBRID_ALPHA_STEP: ${HYBRID_ALPHA_ANNEAL_STEP}"
 echo "HYBRID_ALPHA_TARGET: ${HYBRID_ALPHA_ANNEAL_TARGET}"
 echo "HYBRID_GRPO_VARIANT: ${HYBRID_GRPO_VARIANT}"
 echo "========================================"
