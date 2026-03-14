@@ -20,7 +20,11 @@ else:
 import wandb
 from slime.ray.train_actor import TrainRayActor
 from slime.utils.data import get_minimum_num_micro_batch_size, process_rollout_data
-from slime.utils.pkpo_utils import get_hybrid_pkpo_grpo_advantages, get_pkpo_advantages
+from slime.utils.pkpo_utils import (
+    get_effective_hybrid_alpha,
+    get_hybrid_pkpo_grpo_advantages,
+    get_pkpo_advantages,
+)
 from slime.utils.distributed_utils import get_gloo_group
 from slime.utils.memory_utils import clear_memory
 from slime.utils.ppo_utils import compute_approx_kl, compute_policy_loss
@@ -269,13 +273,12 @@ class FSDPTrainRayActor(TrainRayActor):
                 for i in range(len(rollout_data["rewards"]))
             ]
             current_step = rollout_data.get("rollout_id", 0)
-            if (
-                self.args.hybrid_alpha_anneal_step is not None
-                and current_step >= self.args.hybrid_alpha_anneal_step
-            ):
-                effective_alpha = self.args.hybrid_alpha_anneal_target
-            else:
-                effective_alpha = self.args.hybrid_alpha
+            effective_alpha = get_effective_hybrid_alpha(
+                alpha=self.args.hybrid_alpha,
+                current_step=current_step,
+                anneal_step=self.args.hybrid_alpha_anneal_step,
+                anneal_target=self.args.hybrid_alpha_anneal_target,
+            )
             advantages, _ = get_hybrid_pkpo_grpo_advantages(
                 rewards=torch.tensor(rollout_data["rewards"], dtype=torch.float32),
                 kl=zero_kl,

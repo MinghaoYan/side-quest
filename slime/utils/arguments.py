@@ -642,13 +642,13 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 "--hybrid-alpha-anneal-step",
                 type=int,
                 default=None,
-                help="Step at which to switch hybrid_alpha to hybrid_alpha_anneal_target. None disables switching.",
+                help="Number of steps over which to linearly ramp hybrid_alpha to hybrid_alpha_anneal_target. None disables annealing.",
             )
             parser.add_argument(
                 "--hybrid-alpha-anneal-target",
                 type=float,
                 default=0.5,
-                help="Target alpha after hybrid_alpha_anneal_step.",
+                help="Target alpha reached at the end of the hybrid_alpha linear ramp.",
             )
             parser.add_argument(
                 "--hybrid-grpo-variant",

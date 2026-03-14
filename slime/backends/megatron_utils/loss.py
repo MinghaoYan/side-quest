@@ -15,7 +15,11 @@ from slime.utils.ppo_utils import (
     get_reinforce_plus_plus_returns,
 )
 from slime.utils.entropic_utils import get_entropic_returns
-from slime.utils.pkpo_utils import get_hybrid_pkpo_grpo_advantages, get_pkpo_advantages
+from slime.utils.pkpo_utils import (
+    get_effective_hybrid_alpha,
+    get_hybrid_pkpo_grpo_advantages,
+    get_pkpo_advantages,
+)
 
 from .cp_utils import all_gather_with_cp, get_logits_and_tokens_offset_with_cp, get_sum_of_sample_mean, get_sum_of_sample_sum
 
@@ -283,10 +287,12 @@ def compute_advantages_and_returns(args, rollout_data):
         hybrid_grpo_variant = getattr(args, "hybrid_grpo_variant", "dr_grpo")
 
         current_step = rollout_data.get("rollout_id", 0)
-        if hybrid_alpha_anneal_step is not None and current_step >= hybrid_alpha_anneal_step:
-            effective_alpha = hybrid_alpha_anneal_target
-        else:
-            effective_alpha = hybrid_alpha
+        effective_alpha = get_effective_hybrid_alpha(
+            alpha=hybrid_alpha,
+            current_step=current_step,
+            anneal_step=hybrid_alpha_anneal_step,
+            anneal_target=hybrid_alpha_anneal_target,
+        )
 
         if pkpo_k <= 1:
             returns = get_grpo_returns(rewards, kl)

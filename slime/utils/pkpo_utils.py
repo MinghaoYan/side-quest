@@ -16,9 +16,28 @@ The key functions are:
   - rho: Unbiased maxg@k estimator (Equation 12)
 """
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
+
+
+def get_effective_hybrid_alpha(
+    alpha: float,
+    current_step: int,
+    anneal_step: Optional[int] = None,
+    anneal_target: Optional[float] = None,
+) -> float:
+    """Linearly ramp hybrid alpha from the start value to the target.
+
+    If `anneal_step` is set, alpha ramps from `alpha` at step 0 to
+    `anneal_target` at step `anneal_step`, then stays at the target.
+    """
+    if anneal_step is None or anneal_step <= 0:
+        return alpha
+
+    target = anneal_target if anneal_target is not None else alpha
+    progress = min(max(float(current_step), 0.0) / float(anneal_step), 1.0)
+    return alpha + (target - alpha) * progress
 
 
 def _m_normed(N: int, K: int, i: int, j: int) -> float:
