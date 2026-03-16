@@ -4,6 +4,8 @@ import glob
 import re
 import matplotlib.pyplot as plt
 
+MAX_STEPS = 500
+
 # Hardcoded list of target directories (modify these paths)
 TARGET_DIRS = [
     "logs/dpsk_distill_qwen3_8b_pacevolve_eplb_grpo_bs1_eplb",
@@ -65,6 +67,15 @@ def process_directories(target_dirs):
                 cumulative_max_reward = max(cumulative_max_reward, current_step_max)
             
             max_reward_history.append(cumulative_max_reward)
+
+        # Limit to max steps
+        valid_indices = [i for i, s in enumerate(steps) if s <= MAX_STEPS]
+        steps = [steps[i] for i in valid_indices]
+        max_reward_history = [max_reward_history[i] for i in valid_indices]
+        metrics_history = {
+            k: [v[i] for i in valid_indices]
+            for k, v in metrics_history.items()
+        }
             
         all_data[t_dir] = {
             "steps": steps,
