@@ -4,12 +4,22 @@ import os
 from task_utils import CompletedProcess, _call_shell_command
 import logging
 import re
+import shlex
 
 logger = logging.getLogger("controller")
 @dataclasses.dataclass
 class EvalConfig:
   """Evaluation configuration for a single consistent hashing scenario."""
   dataset: str
+
+
+def _get_cuda_prefix(config: dict) -> str:
+    cuda_visible_devices = str(
+      config.get('evaluation', {}).get('cuda_visible_devices', '')
+    ).strip()
+    if not cuda_visible_devices:
+      return ""
+    return f"CUDA_VISIBLE_DEVICES={shlex.quote(cuda_visible_devices)} "
 
 def recompile_library(config: dict) -> CompletedProcess:
     comp_config = config['compilation']
@@ -22,8 +32,9 @@ def recompile_library(config: dict) -> CompletedProcess:
     KERNEL_BASE_PATH = os.path.join(config['paths']['src_path'], "kernels", config['evaluation']['kernel_name'])
     KERNEL_PATH = os.path.join(KERNEL_BASE_PATH, "kernel.py")
     CONDA_PREFIX = f"/opt/conda/bin/conda run -n {config['compilation']['conda_env']} "
+    CUDA_PREFIX = _get_cuda_prefix(config)
     command = (
-      f"{CONDA_PREFIX} python {EVAL_SCRIPT} --baseline_path {BASELINE_PATH} --kernel_path {KERNEL_PATH} --baseline_time {config['evaluation']['baseline_time']} --build_dir {KERNEL_BASE_PATH}"
+      f"{CUDA_PREFIX}{CONDA_PREFIX} python {EVAL_SCRIPT} --baseline_path {BASELINE_PATH} --kernel_path {KERNEL_PATH} --baseline_time {config['evaluation']['baseline_time']} --build_dir {KERNEL_BASE_PATH}"
     )
     logger.info(f"recompile_library: Running command: {command}")
     process_result = _call_shell_command(
@@ -67,8 +78,9 @@ def evaluate_dataset(
   KERNEL_BASE_PATH = os.path.join(config['paths']['src_path'], "kernels", config['evaluation']['kernel_name'])
   KERNEL_PATH = os.path.join(KERNEL_BASE_PATH, "kernel.py")
   CONDA_PREFIX = f"/opt/conda/bin/conda run -n {config['compilation']['conda_env']} "
+  CUDA_PREFIX = _get_cuda_prefix(config)
   eval_command = (
-    f"{CONDA_PREFIX} python {EVAL_SCRIPT} --baseline_path {BASELINE_PATH} --kernel_path {KERNEL_PATH} --baseline_time {config['evaluation']['baseline_time']} --build_dir {KERNEL_BASE_PATH}"
+    f"{CUDA_PREFIX}{CONDA_PREFIX} python {EVAL_SCRIPT} --baseline_path {BASELINE_PATH} --kernel_path {KERNEL_PATH} --baseline_time {config['evaluation']['baseline_time']} --build_dir {KERNEL_BASE_PATH}"
   )
 
   logger.info(f"evaluate_dataset: Running {eval_command}")

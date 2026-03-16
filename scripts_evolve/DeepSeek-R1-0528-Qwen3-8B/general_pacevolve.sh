@@ -123,13 +123,41 @@ ROLLOUT_ARGS=(
 )
 
 
+NUM_GPUS_PER_NODE=${PACEVOLVE_NUM_GPUS_PER_NODE:-16}
+TRAIN_GPUS_PER_NODE=${PACEVOLVE_TRAIN_GPUS_PER_NODE:-8}
+ROLLOUT_NUM_GPUS=${PACEVOLVE_ROLLOUT_NUM_GPUS:-8}
+ROLLOUT_NUM_GPUS_PER_ENGINE=${PACEVOLVE_ROLLOUT_NUM_GPUS_PER_ENGINE:-8}
+TRAIN_TP_SIZE=${PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE:-4}
+TRAIN_PP_SIZE=${PACEVOLVE_PIPELINE_MODEL_PARALLEL_SIZE:-1}
+TRAIN_CP_SIZE=${PACEVOLVE_CONTEXT_PARALLEL_SIZE:-2}
+TRAIN_EP_SIZE=${PACEVOLVE_EXPERT_MODEL_PARALLEL_SIZE:-1}
+TRAIN_ETP_SIZE=${PACEVOLVE_EXPERT_TENSOR_PARALLEL_SIZE:-1}
+EVAL_GPU_IDS=${PACEVOLVE_EVAL_GPU_IDS:-}
+IFS=',' read -r -a EVAL_GPU_ID_ARRAY <<< "${EVAL_GPU_IDS}"
+EVAL_GPU_COUNT=0
+for gpu_id in "${EVAL_GPU_ID_ARRAY[@]}"; do
+  if [ -n "${gpu_id}" ]; then
+    EVAL_GPU_COUNT=$((EVAL_GPU_COUNT + 1))
+  fi
+done
+
+if [ $((TRAIN_GPUS_PER_NODE + ROLLOUT_NUM_GPUS + EVAL_GPU_COUNT)) -gt ${NUM_GPUS_PER_NODE} ]; then
+  echo "Invalid GPU split: train=${TRAIN_GPUS_PER_NODE}, rollout=${ROLLOUT_NUM_GPUS}, eval=${EVAL_GPU_COUNT}, total=${NUM_GPUS_PER_NODE}"
+  exit 1
+fi
+
+if [ $((ROLLOUT_NUM_GPUS % ROLLOUT_NUM_GPUS_PER_ENGINE)) -ne 0 ]; then
+  echo "ROLLOUT_NUM_GPUS (${ROLLOUT_NUM_GPUS}) must be divisible by ROLLOUT_NUM_GPUS_PER_ENGINE (${ROLLOUT_NUM_GPUS_PER_ENGINE})"
+  exit 1
+fi
+
 PERF_ARGS=(
-  --tensor-model-parallel-size 4
+  --tensor-model-parallel-size ${TRAIN_TP_SIZE}
   --sequence-parallel
-  --pipeline-model-parallel-size 1
-  --context-parallel-size 2
-  --expert-model-parallel-size 1
-  --expert-tensor-parallel-size 1
+  --pipeline-model-parallel-size ${TRAIN_PP_SIZE}
+  --context-parallel-size ${TRAIN_CP_SIZE}
+  --expert-model-parallel-size ${TRAIN_EP_SIZE}
+  --expert-tensor-parallel-size ${TRAIN_ETP_SIZE}
 
   --recompute-granularity full
   --recompute-method uniform
@@ -240,8 +268,8 @@ OPTIMIZER_ARGS=(
 )
 
 SGLANG_ARGS=(
-  --num-gpus-per-node 16
-  --rollout-num-gpus-per-engine 8
+  --num-gpus-per-node ${NUM_GPUS_PER_NODE}
+  --rollout-num-gpus-per-engine ${ROLLOUT_NUM_GPUS_PER_ENGINE}
   --sglang-mem-fraction-static 0.4
   --sglang-cuda-graph-bs 1 2 4 8 $(seq 16 8 256)
 )
@@ -256,9 +284,10 @@ MISC_ARGS=(
   --attention-backend flash
 )
 
-# Start Ray with all 16 GPUs (8 training + 8 inference, no colocate)
+# Start Ray with all visible GPUs. Ray allocates train/rollout GPUs; idle GPUs
+# listed in PACEVOLVE_EVAL_GPU_IDS are reserved for kernel eval subprocesses.
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 16 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus ${NUM_GPUS_PER_NODE} --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
 # Disable Triton
 export TRITON_DISABLE=1
@@ -293,7 +322,8 @@ RUNTIME_ENV_JSON="$(cat <<JSON
     "TRITON_DISABLE": "1",
     "GOOGLE_API_KEY": "${GOOGLE_API_KEY:-}",
     "OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
-    "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
+    "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
+    "PACEVOLVE_EVAL_GPU_IDS": "${EVAL_GPU_IDS}"
   }
 }
 JSON
@@ -305,8 +335,8 @@ ray job submit --address="http://127.0.0.1:8265" \
   --runtime-env-json="${RUNTIME_ENV_JSON}" \
   -- python3 train.py \
   --actor-num-nodes 1 \
-  --actor-num-gpus-per-node 8 \
-  --rollout-num-gpus 8 \
+  --actor-num-gpus-per-node ${TRAIN_GPUS_PER_NODE} \
+  --rollout-num-gpus ${ROLLOUT_NUM_GPUS} \
   ${MODEL_ARGS[@]} \
   ${CKPT_ARGS[@]} \
   ${ROLLOUT_ARGS[@]} \

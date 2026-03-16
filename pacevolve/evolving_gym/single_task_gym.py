@@ -277,9 +277,23 @@ class PACEvolveSingleTaskGym:
             for d in self.config["evaluation"]["eval_configs"]
         ]
 
-        # Concurrency -- serialize evals to avoid file/GPU conflicts
+        # Concurrency -- serialize evals to avoid file/GPU conflicts.
+        # If a dedicated eval GPU pool is provided, cap concurrency to pool size.
+        eval_gpu_ids_env = os.environ.get("PACEVOLVE_EVAL_GPU_IDS", "")
+        self._eval_gpu_ids = [
+            gpu_id.strip()
+            for gpu_id in eval_gpu_ids_env.split(",")
+            if gpu_id.strip()
+        ]
+        if self._eval_gpu_ids:
+            max_concurrent_evaluations = min(
+                max_concurrent_evaluations, len(self._eval_gpu_ids)
+            )
         self.max_concurrent_evaluations = max_concurrent_evaluations
-        self._eval_semaphore = asyncio.Semaphore(max_concurrent_evaluations)
+        self._eval_semaphore = asyncio.Semaphore(self.max_concurrent_evaluations)
+        self._eval_gpu_queue = asyncio.Queue()
+        for gpu_id in self._eval_gpu_ids:
+            self._eval_gpu_queue.put_nowait(gpu_id)
         self._generation_counter = 0
         self._lock = threading.Lock()
         self._pending_context: Dict[str, Dict[str, Any]] = {}  # one context per parent
@@ -324,8 +338,13 @@ class PACEvolveSingleTaskGym:
         self.use_puct_reuse = False
         self.puct_archive = None
 
-        print(f"[PACEvolveSingleTaskGym] Initialized for task={self.task_id}, "
-              f"islands={num_islands}, reward_type={reward_process_type}")
+        print(
+            f"[PACEvolveSingleTaskGym] Initialized for task={self.task_id}, "
+            f"islands={num_islands}, reward_type={reward_process_type}, "
+            f"max_concurrent_evaluations={self.max_concurrent_evaluations}, "
+            f"eval_gpu_ids={self._eval_gpu_ids}",
+            flush=True,
+        )
 
     def _get_transcript_filename(self) -> str:
         """Return per-sample transcript file when recording, else shared transcript."""
@@ -349,7 +368,7 @@ class PACEvolveSingleTaskGym:
         """Clear record context after rollout."""
         record_context.clear_record_context()
 
-    def _create_sample_workspace(self):
+    def _create_sample_workspace(self, eval_gpu_id: Optional[str] = None):
         """Create an isolated temp workspace for this sample to avoid race conditions
         when multiple samples edit the same target file concurrently.
         Returns (config_override, compile_config_override, cleanup_fn).
@@ -378,8 +397,11 @@ class PACEvolveSingleTaskGym:
 
         config_override = deepcopy(self.config)
         config_override["paths"] = dict(config_override["paths"])
+        config_override["evaluation"] = dict(config_override["evaluation"])
         config_override["paths"]["src_path"] = temp_src
         config_override["paths"]["results_path"] = temp_results
+        if eval_gpu_id is not None:
+            config_override["evaluation"]["cuda_visible_devices"] = str(eval_gpu_id)
 
         compile_config_override = task_utils.CompilationConfig(
             target_file_path=os.path.join(temp_src, target_file),
@@ -836,19 +858,29 @@ Original policy output:
         # Capture record context before run_in_executor - contextvars don't propagate to threads
         ctx = record_context.get_record_context()
 
-        def _run_with_context():
-            if ctx and "sample_index" in ctx and "record_dir" in ctx:
-                record_context.set_record_context(
-                    ctx["rollout_id"],
-                    ctx["sample_index"],
-                    ctx["record_dir"],
-                )
-            return self._score_response_sync(response, parent_program)
-
         async with self._eval_semaphore:
-            return await asyncio.get_event_loop().run_in_executor(
-                None, _run_with_context
-            )
+            eval_gpu_id = None
+            if self._eval_gpu_ids:
+                eval_gpu_id = await self._eval_gpu_queue.get()
+
+            def _run_with_context():
+                if ctx and "sample_index" in ctx and "record_dir" in ctx:
+                    record_context.set_record_context(
+                        ctx["rollout_id"],
+                        ctx["sample_index"],
+                        ctx["record_dir"],
+                    )
+                return self._score_response_sync(
+                    response, parent_program, eval_gpu_id=eval_gpu_id
+                )
+
+            try:
+                return await asyncio.get_event_loop().run_in_executor(
+                    None, _run_with_context
+                )
+            finally:
+                if eval_gpu_id is not None:
+                    self._eval_gpu_queue.put_nowait(eval_gpu_id)
 
     def _make_error_result(
         self, parent: ParentProgram, error: str, code: str = "", t0: float = 0.0,
@@ -874,7 +906,10 @@ Original policy output:
         return result
 
     def _score_response_sync(
-        self, response: str, parent_program: ParentProgram
+        self,
+        response: str,
+        parent_program: ParentProgram,
+        eval_gpu_id: Optional[str] = None,
     ) -> Optional[Result]:
         """Full PACEvolve iteration driven by the trained policy's ideas.
 
@@ -1012,10 +1047,11 @@ Original policy output:
             # ----- Step 4 & 5: edit_until_compile + edit_until_successful_eval -----
             # Use per-sample isolated workspace to avoid race when n_samples_per_prompt > 1
             config_override, compile_config_override, cleanup_workspace = (
-                self._create_sample_workspace()
+                self._create_sample_workspace(eval_gpu_id=eval_gpu_id)
             )
             print(
-                f"[PACEvolve] Using temp workspace target_file={compile_config_override.target_file_path}",
+                f"[PACEvolve] Using temp workspace target_file={compile_config_override.target_file_path} "
+                f"eval_gpu_id={eval_gpu_id}",
                 flush=True,
             )
             try:

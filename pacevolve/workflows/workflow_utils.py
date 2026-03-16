@@ -450,7 +450,12 @@ def edit_until_successful_eval(
 
     # Attempt evals, assuming that the current code is installed to the library.
     trial = attempt_evals(
-      eval_configs, trial, candidate_id, baseline_id, config, max_parallel_evals=5
+      eval_configs,
+      trial,
+      candidate_id,
+      baseline_id,
+      config,
+      max_parallel_evals=config.get("evaluation", {}).get("max_parallel_evals", 5),
     )
     # If all trials were successful, we can break out of the loop; eval is done.
     if all(trial.eval_success):
