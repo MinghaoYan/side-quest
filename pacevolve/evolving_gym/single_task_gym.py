@@ -1104,6 +1104,13 @@ Original policy output:
                 eval_results_text, "system", tags=["initial_eval_results"],
             ))
 
+            eval_metrics = None
+            if hasattr(self._task_eval_utils, "parse_eval_metrics"):
+                try:
+                    eval_metrics = self._task_eval_utils.parse_eval_metrics(trial.eval_results)
+                except Exception as e:
+                    logger.warning("Failed to parse eval metrics payload: %s", e)
+
             eval_score = self._task_eval_utils.parse_eval_results(trial.eval_results)
             parse_failed = eval_score is None
             if eval_score is None:
@@ -1164,6 +1171,10 @@ Original policy output:
                     combined_score, is_error=parse_failed
                 ),
             }
+            if isinstance(eval_metrics, dict):
+                for key in ("mean_pearson_r", "mean_precision_top5", "num_datasets", "datasets"):
+                    if key in eval_metrics:
+                        child_metrics[key] = eval_metrics[key]
             child = ChildProgram(
                 id=str(uuid.uuid4()),
                 code=trial.algorithm_implementation,

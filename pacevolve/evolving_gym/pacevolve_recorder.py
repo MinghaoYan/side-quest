@@ -100,6 +100,7 @@ class PACEvolveRecorder:
                         "reward": reward_val,
                         "child_id": child_id,
                         "error": error_val,
+                        "metrics": metrics,
                     })
                     sample_index += 1
         else:

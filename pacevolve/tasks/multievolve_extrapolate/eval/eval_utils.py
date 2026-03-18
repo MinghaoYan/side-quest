@@ -9,7 +9,7 @@ import os
 import re
 import shlex
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 
 logger = logging.getLogger("controller")
@@ -127,7 +127,7 @@ def evaluate_dataset(
     return process_result
 
 
-def parse_eval_results(eval_results):
+def parse_eval_metrics(eval_results) -> Optional[dict[str, Any]]:
     if isinstance(eval_results, str):
         match = re.search(r"Candidate:\s*(\{.+\})", eval_results)
         if not match:
@@ -135,10 +135,43 @@ def parse_eval_results(eval_results):
             return None
         try:
             payload = json.loads(match.group(1))
-            return float(payload["combined_score"])
+            if not isinstance(payload, dict):
+                logger.error("Parsed evaluation payload is not a dictionary.")
+                return None
+            return payload
         except Exception as exc:
             logger.error(f"Could not parse evaluation metrics: {exc}")
             return None
+
+    if isinstance(eval_results, list):
+        parsed_results = []
+        for result in eval_results:
+            parsed_val = parse_eval_metrics(result)
+            if parsed_val is not None:
+                parsed_results.append(parsed_val)
+        if len(parsed_results) == 1:
+            return parsed_results[0]
+        if not parsed_results:
+            return None
+        return {"results": parsed_results}
+
+    raise ValueError("Input must be a string or a list of strings.")
+
+
+def parse_eval_results(eval_results):
+    payload = parse_eval_metrics(eval_results)
+    if payload is None:
+        return None
+
+    if isinstance(payload, dict) and "combined_score" in payload:
+        try:
+            return float(payload["combined_score"])
+        except Exception as exc:
+            logger.error(f"Could not read combined_score from evaluation metrics: {exc}")
+            return None
+
+    if isinstance(eval_results, str):
+        return None
 
     if isinstance(eval_results, list):
         parsed_results = []
