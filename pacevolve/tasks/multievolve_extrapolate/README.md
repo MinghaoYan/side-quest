@@ -93,3 +93,35 @@ python pacevolve/tasks/multievolve_extrapolate/eval/evaluate_multievolve_extrapo
 ## Relationship to the original MULTI-evolve repo
 
 This task is based on the public benchmark design and split style from the local [MULTI-evolve](../../../../MULTI-evolve/README.md) clone, but the evaluator is intentionally lighter than their full training stack so that evolutionary search can run repeatedly without WandB sweeps or the full package environment.
+
+## Running PACEvolve
+
+There is also a top-level launcher at [run_multievolve.sh](/Users/minghao/PACE-RL/run_multievolve.sh).
+
+Default behavior:
+
+- runs `multievolve_extrapolate`
+- uses the `lite` benchmark
+- uses `HYBRID_PKPO_GRPO` with `HYBRID_GRPO_VARIANT=dr_grpo`
+- anneals `HYBRID_ALPHA` from `0.0` to `0.8` over `200` steps
+- reserves a 16-GPU node as `4 train + 8 rollout + 4 eval`
+
+If prepared benchmark files are missing, the script will:
+
+- copy raw CSVs from `MULTI-evolve/data/benchmark/datasets` if present
+- otherwise optionally download from Zenodo when `MULTIEVOLVE_AUTO_DOWNLOAD=1`
+
+Example:
+
+```bash
+bash /Users/minghao/PACE-RL/run_multievolve.sh
+```
+
+Useful overrides:
+
+```bash
+MULTIEVOLVE_BENCHMARK_LEVEL=full \
+MULTIEVOLVE_AUTO_DOWNLOAD=1 \
+WANDB_PROJECT=my_project \
+bash /Users/minghao/PACE-RL/run_multievolve.sh
+```
