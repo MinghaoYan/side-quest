@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, Dataset
 
 SEED = 42
 MAX_HISTORY = 64
-NUM_EPOCHS = 8
+NUM_EPOCHS = 16
 TRAIN_BATCH_SIZE = 1024
 EVAL_BATCH_SIZE = 2048
 LEARNING_RATE = 3e-4
@@ -428,7 +428,7 @@ class WukongSequenceModel(BaseSequenceRecommender):
         super().__init__()
         self.num_items = num_items
         self.max_history = max_history
-        self.dim_emb = 160
+        self.dim_emb = 288
 
         self.feature_builder = SequenceFeatureBuilder(num_items=num_items, max_history=max_history)
         self.sparse_embedding = nn.Embedding(
@@ -447,50 +447,68 @@ class WukongSequenceModel(BaseSequenceRecommender):
                 WukongLayer(
                     num_emb_in=num_fields,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=28,
-                    num_emb_fmb=28,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
                     rank_fmb=16,
-                    hidden_dim=1024,
+                    hidden_dim=4608,
                     dropout=0.15,
                 ),
                 WukongLayer(
-                    num_emb_in=56,
+                    num_emb_in=64,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=28,
-                    num_emb_fmb=28,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
                     rank_fmb=16,
-                    hidden_dim=1024,
+                    hidden_dim=4608,
                     dropout=0.15,
                 ),
                 WukongLayer(
-                    num_emb_in=56,
+                    num_emb_in=64,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=28,
-                    num_emb_fmb=28,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
                     rank_fmb=16,
-                    hidden_dim=1024,
+                    hidden_dim=4608,
                     dropout=0.15,
                 ),
                 WukongLayer(
-                    num_emb_in=56,
+                    num_emb_in=64,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=28,
-                    num_emb_fmb=28,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
                     rank_fmb=16,
-                    hidden_dim=1024,
+                    hidden_dim=4608,
+                    dropout=0.15,
+                ),
+                WukongLayer(
+                    num_emb_in=64,
+                    dim_emb=self.dim_emb,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
+                    rank_fmb=16,
+                    hidden_dim=4608,
+                    dropout=0.15,
+                ),
+                WukongLayer(
+                    num_emb_in=64,
+                    dim_emb=self.dim_emb,
+                    num_emb_lcb=32,
+                    num_emb_fmb=32,
+                    rank_fmb=16,
+                    hidden_dim=4608,
                     dropout=0.15,
                 ),
             ]
         )
         self.field_gate = nn.Linear(self.dim_emb, 1)
         self.user_head = nn.Sequential(
-            nn.Linear(56 * self.dim_emb + 2 * self.dim_emb, 768),
+            nn.Linear(64 * self.dim_emb + 2 * self.dim_emb, 2304),
             nn.GELU(),
-            nn.LayerNorm(768),
-            nn.Linear(768, 384),
+            nn.LayerNorm(2304),
+            nn.Linear(2304, 1152),
             nn.GELU(),
-            nn.LayerNorm(384),
-            nn.Linear(384, self.dim_emb),
+            nn.LayerNorm(1152),
+            nn.Linear(1152, self.dim_emb),
         )
         self.item_bias = nn.Parameter(torch.zeros(num_items + 1))
 

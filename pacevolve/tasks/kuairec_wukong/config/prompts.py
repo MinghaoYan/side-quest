@@ -43,7 +43,7 @@ This task adapts the Wukong recommendation backbone to sequential recommendation
 The benchmark keeps the experimental scaffold fixed:
 
 - Dataset: KuaRec only
-- Epochs: fixed at 8
+- Epochs: fixed at 16
 - Objective: fixed sampled-softmax next-item prediction
 - Evaluation: fixed full-catalog ranking with NDCG@10, HR@10, and MRR
 - Runtime target: around 5 minutes on 1xA100
