@@ -9,6 +9,7 @@ import json
 import math
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass
 
@@ -27,6 +28,17 @@ LEARNING_RATE = 3e-4
 WEIGHT_DECAY = 1e-4
 NUM_NEGATIVES = 127
 MAX_WALL_TIME_SECONDS = 300.0
+
+
+def configure_csv_field_limit() -> None:
+    """Raise the stdlib CSV field-size cap for long sequence columns."""
+    field_limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(field_limit)
+            return
+        except OverflowError:
+            field_limit //= 10
 
 
 def set_seed(seed: int) -> None:
@@ -140,6 +152,7 @@ def load_or_prepare_data(dataset_csv: str) -> PreparedData:
     timestamps: list[list[int]] = []
     num_items = 0
 
+    configure_csv_field_limit()
     with open(dataset_csv, "r", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:

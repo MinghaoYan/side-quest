@@ -63,7 +63,7 @@ python fuxi-linear/preprocess_kuairec_data.py
 
 The evaluator expects the processed file at:
 
-`fuxi-linear/tmp/processed/kuairec/sasrec_format.csv`
+`pacevolve/tasks/kuairec_wukong/data/sasrec_format.csv`
 
 ### 2. Run the evaluator directly
 
@@ -72,7 +72,7 @@ Syntax-only validation:
 ```bash
 python pacevolve/tasks/kuairec_wukong/eval/evaluate_kuairec_wukong.py \
   --candidate_path pacevolve/tasks/kuairec_wukong/src/train_wukong.py \
-  --dataset_csv fuxi-linear/tmp/processed/kuairec/sasrec_format.csv \
+  --dataset_csv pacevolve/tasks/kuairec_wukong/data/sasrec_format.csv \
   --syntax_only
 ```
 
@@ -81,7 +81,7 @@ Full training + evaluation:
 ```bash
 python pacevolve/tasks/kuairec_wukong/eval/evaluate_kuairec_wukong.py \
   --candidate_path pacevolve/tasks/kuairec_wukong/src/train_wukong.py \
-  --dataset_csv fuxi-linear/tmp/processed/kuairec/sasrec_format.csv
+  --dataset_csv pacevolve/tasks/kuairec_wukong/data/sasrec_format.csv
 ```
 
 ## Baseline Size
@@ -122,6 +122,42 @@ The candidate script prints a JSON payload with:
 `combined_score` is the optimization target and is defined as:
 
 `(ndcg@10 + hr@10 + mrr) / 3`
+
+### What These Metrics Mean
+
+- `ndcg@10`: Normalized Discounted Cumulative Gain at 10. It gives credit when the true next item is ranked near the top, with more reward for rank 1 than rank 10.
+- `hr@10`: Hit Rate at 10. It is `1` if the true next item appears anywhere in the top-10 list and `0` otherwise, then averaged over users.
+- `mrr`: Mean Reciprocal Rank. It uses `1 / rank` of the true next item, so rank 1 gives `1.0`, rank 2 gives `0.5`, rank 10 gives `0.1`, and lower ranks contribute less.
+
+### Is The Arithmetic Mean Reasonable?
+
+Yes, it is a reasonable simple aggregate here because all three are bounded ranking metrics on roughly the same numeric scale:
+
+- `ndcg@10` is in `[0, 1]`
+- `hr@10` is in `[0, 1]`
+- `mrr` is in `(0, 1]`
+
+They are not identical in behavior, though:
+
+- `hr@10` is the coarsest metric and only checks whether the target entered the top-10.
+- `ndcg@10` and `mrr` care more about exact position near the top.
+- `mrr` is usually numerically lower than `hr@10` because it penalizes lower ranks more sharply.
+
+So the arithmetic mean is not a theoretically perfect calibration, but it is a practical summary because it combines:
+
+- coarse retrieval success (`hr@10`)
+- top-heavy ranking quality (`ndcg@10`)
+- exact-rank sensitivity (`mrr`)
+
+### Does `metrics.json` Store The Submetrics Separately?
+
+Yes, for PACEvolve gym runs it now does.
+
+- The evaluator already emits every submetric in the final `Candidate: {...}` JSON payload.
+- The task now implements `parse_eval_metrics(...)` in [`eval_utils.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec_wukong/eval/eval_utils.py).
+- The gym recorder path now propagates the full parsed metric dictionary into each candidate entry in `metrics.json`, not just `combined_score`.
+
+That means each recorded candidate can retain fields like `ndcg@10`, `hr@10`, `mrr`, `wall_time_sec`, and `within_budget` alongside the aggregate score.
 
 Candidates that exceed the wall-clock budget are treated as invalid.
 

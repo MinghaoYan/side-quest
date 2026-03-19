@@ -22,6 +22,39 @@ class EvalConfig:
     dataset: str
 
 
+def parse_eval_metrics(
+    eval_results: list[str] | str,
+) -> dict | None:
+    if isinstance(eval_results, str):
+        match = re.search(r"Candidate:\s*(\{.+\})", eval_results)
+        if not match:
+            logger.error(f"Pattern not found in the string: '{eval_results[-500:]}'")
+            return None
+        try:
+            payload = json.loads(match.group(1))
+        except Exception as exc:
+            logger.error(f"Could not parse KuaRec Wukong metrics: {exc}")
+            return None
+        if not isinstance(payload, dict):
+            logger.error("Parsed evaluation payload is not a dictionary.")
+            return None
+        return payload
+
+    if isinstance(eval_results, list):
+        parsed_results = []
+        for result in eval_results:
+            parsed_val = parse_eval_metrics(result)
+            if parsed_val is not None:
+                parsed_results.append(parsed_val)
+        if len(parsed_results) == 1:
+            return parsed_results[0]
+        if not parsed_results:
+            return None
+        return {"results": parsed_results}
+
+    raise ValueError("Input must be a string or a list of strings.")
+
+
 def _build_command(config: dict, syntax_only: bool = False) -> str:
     eval_path = os.path.expanduser(config["paths"]["eval_path"])
     src_path = os.path.expanduser(config["paths"]["src_path"])
@@ -106,14 +139,8 @@ def parse_eval_results(
     eval_results: list[str] | str,
 ) -> list[float | None] | float | None:
     if isinstance(eval_results, str):
-        match = re.search(r"Candidate:\s*(\{.+\})", eval_results)
-        if not match:
-            logger.error(f"Pattern not found in the string: '{eval_results[-500:]}'")
-            return None
-        try:
-            payload = json.loads(match.group(1))
-        except Exception as exc:
-            logger.error(f"Could not parse KuaRec Wukong metrics: {exc}")
+        payload = parse_eval_metrics(eval_results)
+        if payload is None:
             return None
         if not payload.get("within_budget", False):
             logger.error("Candidate exceeded the fixed runtime budget.")
@@ -133,4 +160,3 @@ def parse_eval_results(
         return parsed_results
 
     raise ValueError("Input must be a string or a list of strings.")
-

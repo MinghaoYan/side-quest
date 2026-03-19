@@ -14,7 +14,7 @@ experiment:
   num_cpu_cores: 16
 
 paths:
-  data_path: "/workspace/fuxi-linear/tmp/processed/kuairec/sasrec_format.csv"
+  data_path: "/workspace/pacevolve/tasks/kuairec_wukong/data/sasrec_format.csv"
   src_path: "/workspace/pacevolve/tasks/kuairec_wukong/src"
   eval_path: "/workspace/pacevolve/tasks/kuairec_wukong/eval"
   results_path: "/workspace/pacevolve/tasks/kuairec_wukong/results"
@@ -63,4 +63,3 @@ summarization:
   context_lines_after_error: 3
   max_lines_fallback: 40
   max_summary_lines: 60
-

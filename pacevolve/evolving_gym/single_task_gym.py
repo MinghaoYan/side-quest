@@ -1172,9 +1172,9 @@ Original policy output:
                 ),
             }
             if isinstance(eval_metrics, dict):
-                for key in ("mean_pearson_r", "mean_precision_top5", "num_datasets", "datasets"):
-                    if key in eval_metrics:
-                        child_metrics[key] = eval_metrics[key]
+                for key, value in eval_metrics.items():
+                    if key not in child_metrics:
+                        child_metrics[key] = value
             child = ChildProgram(
                 id=str(uuid.uuid4()),
                 code=trial.algorithm_implementation,
