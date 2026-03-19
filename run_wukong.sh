@@ -8,7 +8,6 @@ export SAVE_PATH="${SAVE_PATH:-/workspace/logs}"
 SMALL_MODEL_NAME="${SMALL_MODEL_NAME:-dpsk_distill_qwen3_8b}"
 WUKONG_TASK_ID="${WUKONG_TASK_ID:-kuairec_wukong}"
 WUKONG_CONFIG_ID="${WUKONG_CONFIG_ID:-1}"
-WUKONG_DATA_PATH="${WUKONG_DATA_PATH:-/Users/minghao/PACE-RL/pacevolve/tasks/kuairec_wukong/data/sasrec_format.csv}"
 
 IS_TRAINING="${IS_TRAINING:-True}"
 WUKONG_MAX_ITERS="${WUKONG_MAX_ITERS:-200}"
@@ -83,12 +82,6 @@ if [ ! -f "${BASE_CONFIG_YAML}" ]; then
     exit 1
 fi
 
-if [ ! -f "${WUKONG_DATA_PATH}" ]; then
-    echo "Missing KuaRec processed CSV: ${WUKONG_DATA_PATH}"
-    echo "Expected output of fuxi-linear/preprocess_kuairec_data.py"
-    exit 1
-fi
-
 TASK_NAME="KUAIREC_WUKONG"
 ALGO_STR="$(printf '%s' "${ADVANTAGE_ESTIMATOR_ALGORITHM}" | tr '[:upper:]' '[:lower:]')"
 RUN_NAME="${SMALL_MODEL_NAME}_pacevolve_${WUKONG_TASK_ID}_${ALGO_STR}_cfg${WUKONG_CONFIG_ID}${POSTFIX_STR}"
@@ -109,7 +102,7 @@ export WANDB_ENTITY
 export WANDB_PROJECT
 
 RUNTIME_CONFIG_YAML="${SAVE_PATH}/${RUN_NAME}/config_${WUKONG_TASK_ID}_runtime.yaml"
-"${PYTHON_BIN}" - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${WUKONG_DATA_PATH}" "${WUKONG_MAX_ITERS}" "${WUKONG_EVAL_TIMEOUT}" "${WUKONG_RECOMPILE_TIMEOUT}" "${PACEVOLVE_N_SAMPLES_PER_PROMPT}" "${PACEVOLVE_MAX_CONCURRENT_EVALS}" <<'PY'
+"${PYTHON_BIN}" - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${WUKONG_MAX_ITERS}" "${WUKONG_EVAL_TIMEOUT}" "${WUKONG_RECOMPILE_TIMEOUT}" "${PACEVOLVE_N_SAMPLES_PER_PROMPT}" "${PACEVOLVE_MAX_CONCURRENT_EVALS}" <<'PY'
 import os
 import sys
 import yaml
@@ -118,7 +111,6 @@ import yaml
     base_cfg,
     out_cfg,
     task_root,
-    data_path,
     max_iters,
     eval_timeout,
     recompile_timeout,
@@ -129,7 +121,10 @@ import yaml
 with open(base_cfg, "r") as f:
     cfg = yaml.safe_load(f)
 
-cfg["paths"]["data_path"] = os.path.abspath(data_path)
+configured_data_path = os.path.expanduser(str(cfg["paths"]["data_path"]))
+if not os.path.isabs(configured_data_path):
+    configured_data_path = os.path.abspath(os.path.join(task_root, configured_data_path))
+cfg["paths"]["data_path"] = configured_data_path
 cfg["paths"]["src_path"] = os.path.join(task_root, "src")
 cfg["paths"]["eval_path"] = os.path.join(task_root, "eval")
 cfg["paths"]["results_path"] = os.path.join(task_root, "results")
@@ -148,6 +143,23 @@ os.makedirs(os.path.dirname(out_cfg), exist_ok=True)
 with open(out_cfg, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
+
+WUKONG_DATA_PATH="$("${PYTHON_BIN}" - "${RUNTIME_CONFIG_YAML}" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], "r") as f:
+    cfg = yaml.safe_load(f)
+
+print(cfg["paths"]["data_path"])
+PY
+)"
+
+if [ ! -f "${WUKONG_DATA_PATH}" ]; then
+    echo "Missing KuaRec processed CSV from config: ${WUKONG_DATA_PATH}"
+    echo "Update paths.data_path in ${BASE_CONFIG_YAML} or place the processed CSV there."
+    exit 1
+fi
 
 FORCE_DOWNLOAD=0
 if [ -d "${SAVE_SHM_DIR}/${MODEL_NAME}" ] && [ -f "${SAVE_SHM_DIR}/${MODEL_NAME}/config.json" ] && [ "${FORCE_DOWNLOAD}" -eq 0 ]; then

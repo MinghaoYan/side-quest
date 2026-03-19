@@ -16,6 +16,8 @@ import dataclasses
 import logging
 import os
 import re
+import shlex
+import sys
 
 from task_utils import CompletedProcess, _call_shell_command
 
@@ -29,20 +31,42 @@ class EvalConfig:
     dataset: str
 
 
+def _get_python_executable() -> str:
+    python_executable = sys.executable or "python"
+    return shlex.quote(python_executable)
+
+
+def _get_cuda_prefix(config: dict) -> str:
+    cuda_visible_devices = str(
+        config.get("evaluation", {}).get("cuda_visible_devices", "")
+    ).strip()
+    if not cuda_visible_devices:
+        return ""
+    return f"CUDA_VISIBLE_DEVICES={shlex.quote(cuda_visible_devices)} "
+
+
+def _build_command(config: dict) -> str:
+    eval_path = os.path.expanduser(config["paths"]["eval_path"])
+    target_path = os.path.expanduser(config["paths"]["src_path"])
+    eval_script = os.path.join(
+        eval_path, config["evaluation"]["eval_script_name"]
+    )
+    candidate_script = os.path.join(
+        target_path, config["paths"]["target_file_path"]
+    )
+    data_path = os.path.expanduser(str(config["paths"]["data_path"]))
+    cuda_prefix = _get_cuda_prefix(config)
+    python_executable = _get_python_executable()
+    return (
+        f"{cuda_prefix}{python_executable} {shlex.quote(eval_script)} "
+        f"--candidate_path {shlex.quote(candidate_script)} "
+        f"--data_path {shlex.quote(data_path)}"
+    )
+
+
 def recompile_library(config: dict) -> CompletedProcess:
     comp_config = config["compilation"]
-    EVAL_PATH = os.path.expanduser(config["paths"]["eval_path"])
-    TARGET_PATH = os.path.expanduser(config["paths"]["src_path"])
-    EVAL_SCRIPT = os.path.join(
-        EVAL_PATH, config["evaluation"]["eval_script_name"]
-    )
-    CANDIDATE_SCRIPT = os.path.join(
-        TARGET_PATH, config["paths"]["target_file_path"]
-    )
-    command = (
-        f"python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} "
-        f"--data_path {config['paths']['data_path']}"
-    )
+    command = _build_command(config)
     logger.info(f"recompile_library: Running command: {command}")
     process_result = _call_shell_command(
         command,
@@ -78,20 +102,10 @@ def evaluate_dataset(
     eval_config: EvalConfig,
     config: dict,
 ) -> CompletedProcess:
-    EVAL_PATH = os.path.expanduser(config["paths"]["eval_path"])
-    TARGET_PATH = os.path.expanduser(config["paths"]["src_path"])
-    EVAL_SCRIPT = os.path.join(
-        EVAL_PATH, config["evaluation"]["eval_script_name"]
-    )
-    CANDIDATE_SCRIPT = os.path.join(
-        TARGET_PATH, config["paths"]["target_file_path"]
-    )
+    del candidate_id, baseline_id
     RESULTS_PATH = os.path.expanduser(config["paths"]["results_path"])
     results_dir = os.path.join(RESULTS_PATH, eval_config.dataset)
-    eval_command = (
-        f"python {EVAL_SCRIPT} --candidate_path {CANDIDATE_SCRIPT} "
-        f"--data_path {config['paths']['data_path']}"
-    )
+    eval_command = _build_command(config)
 
     try:
         os.makedirs(results_dir, exist_ok=True)

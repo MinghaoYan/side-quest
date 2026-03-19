@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from typing import Any, Optional
 
 
@@ -51,6 +52,20 @@ class EvalConfig:
     dataset: str
 
 
+def _get_python_executable() -> str:
+    python_executable = sys.executable or "python"
+    return shlex.quote(python_executable)
+
+
+def _get_cuda_prefix(config: dict) -> str:
+    cuda_visible_devices = str(
+        config.get("evaluation", {}).get("cuda_visible_devices", "")
+    ).strip()
+    if not cuda_visible_devices:
+        return ""
+    return f"CUDA_VISIBLE_DEVICES={shlex.quote(cuda_visible_devices)} "
+
+
 def _build_command(config: dict, syntax_only: bool = False) -> str:
     eval_path = os.path.expanduser(config["paths"]["eval_path"])
     src_path = os.path.expanduser(config["paths"]["src_path"])
@@ -58,8 +73,10 @@ def _build_command(config: dict, syntax_only: bool = False) -> str:
     eval_script = os.path.join(eval_path, config["evaluation"]["eval_script_name"])
     candidate_script = os.path.join(src_path, config["paths"]["target_file_path"])
     benchmark_level = config["evaluation"].get("benchmark_level", "lite")
+    cuda_prefix = _get_cuda_prefix(config)
+    python_executable = _get_python_executable()
     command = (
-        f"python {shlex.quote(eval_script)} "
+        f"{cuda_prefix}{python_executable} {shlex.quote(eval_script)} "
         f"--candidate_path {shlex.quote(candidate_script)} "
         f"--data_dir {shlex.quote(data_path)} "
         f"--benchmark_level {shlex.quote(str(benchmark_level))}"
