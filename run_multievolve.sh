@@ -17,6 +17,7 @@ SMALL_MODEL_NAME="${SMALL_MODEL_NAME:-dpsk_distill_qwen3_8b}"
 MULTIEVOLVE_TASK_ID="${MULTIEVOLVE_TASK_ID:-multievolve_extrapolate}"
 MULTIEVOLVE_CONFIG_ID="${MULTIEVOLVE_CONFIG_ID:-1}"
 MULTIEVOLVE_BENCHMARK_LEVEL="${MULTIEVOLVE_BENCHMARK_LEVEL:-lite}"
+MULTIEVOLVE_BENCHMARK_PROTOCOL="${MULTIEVOLVE_BENCHMARK_PROTOCOL:-paper}"
 
 IS_TRAINING="${IS_TRAINING:-True}"
 MULTIEVOLVE_MAX_ITERS="${MULTIEVOLVE_MAX_ITERS:-2000}"
@@ -127,7 +128,7 @@ print(cfg['experiment']['sota_algo_name'])
 " 2>/dev/null || echo "${MULTIEVOLVE_TASK_ID}")
 
 ALGO_STR="$(printf '%s' "${ADVANTAGE_ESTIMATOR_ALGORITHM}" | tr '[:upper:]' '[:lower:]')"
-RUN_NAME="${SMALL_MODEL_NAME}_pacevolve_${MULTIEVOLVE_TASK_ID}_${ALGO_STR}_cfg${MULTIEVOLVE_CONFIG_ID}_${MULTIEVOLVE_BENCHMARK_LEVEL}${POSTFIX_STR}"
+RUN_NAME="${SMALL_MODEL_NAME}_pacevolve_${MULTIEVOLVE_TASK_ID}_${ALGO_STR}_cfg${MULTIEVOLVE_CONFIG_ID}_${MULTIEVOLVE_BENCHMARK_LEVEL}_${MULTIEVOLVE_BENCHMARK_PROTOCOL}${POSTFIX_STR}"
 
 mkdir -p "${SAVE_PATH}" "${SAVE_PATH}/tmp" "${SAVE_PATH}/hf" "${SAVE_PATH}/wandb" "${SAVE_PATH}/shm" "${SAVE_PATH}/triton" "${SAVE_PATH}/${RUN_NAME}"
 
@@ -144,7 +145,7 @@ export WANDB_API_KEY
 export WANDB_ENTITY
 export WANDB_PROJECT
 
-PREPARED_SUMMARY="${MULTIEVOLVE_DATA_PATH}/prepared/${MULTIEVOLVE_BENCHMARK_LEVEL}/benchmark_summary.json"
+PREPARED_SUMMARY="${MULTIEVOLVE_DATA_PATH}/prepared/${MULTIEVOLVE_BENCHMARK_LEVEL}/${MULTIEVOLVE_BENCHMARK_PROTOCOL}/benchmark_summary.json"
 if [ ! -f "${PREPARED_SUMMARY}" ]; then
     echo "Prepared MULTI-evolve benchmark not found at: ${PREPARED_SUMMARY}"
 
@@ -175,11 +176,12 @@ if [ ! -f "${PREPARED_SUMMARY}" ]; then
     echo "Preparing MULTI-evolve benchmark (${MULTIEVOLVE_BENCHMARK_LEVEL})"
     "${PYTHON_BIN}" "${PREPARE_SCRIPT}" \
         --benchmark-level "${MULTIEVOLVE_BENCHMARK_LEVEL}" \
+        --benchmark-protocol "${MULTIEVOLVE_BENCHMARK_PROTOCOL}" \
         --data-dir "${MULTIEVOLVE_DATA_PATH}" || exit 1
 fi
 
 RUNTIME_CONFIG_YAML="${SAVE_PATH}/${RUN_NAME}/config_${MULTIEVOLVE_TASK_ID}_runtime.yaml"
-"${PYTHON_BIN}" - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${MULTIEVOLVE_DATA_PATH}" "${MULTIEVOLVE_MAX_ITERS}" "${MULTIEVOLVE_EVAL_TIMEOUT}" "${MULTIEVOLVE_RECOMPILE_TIMEOUT}" "${MULTIEVOLVE_BENCHMARK_LEVEL}" "${PACEVOLVE_N_SAMPLES_PER_PROMPT}" "${PACEVOLVE_MAX_CONCURRENT_EVALS}" <<'PY'
+"${PYTHON_BIN}" - "${BASE_CONFIG_YAML}" "${RUNTIME_CONFIG_YAML}" "${TASK_ROOT}" "${MULTIEVOLVE_DATA_PATH}" "${MULTIEVOLVE_MAX_ITERS}" "${MULTIEVOLVE_EVAL_TIMEOUT}" "${MULTIEVOLVE_RECOMPILE_TIMEOUT}" "${MULTIEVOLVE_BENCHMARK_LEVEL}" "${MULTIEVOLVE_BENCHMARK_PROTOCOL}" "${PACEVOLVE_N_SAMPLES_PER_PROMPT}" "${PACEVOLVE_MAX_CONCURRENT_EVALS}" <<'PY'
 import os
 import sys
 import yaml
@@ -193,6 +195,7 @@ import yaml
     eval_timeout,
     recompile_timeout,
     benchmark_level,
+    benchmark_protocol,
     n_samples_per_prompt,
     max_parallel_evals,
 ) = sys.argv[1:]
@@ -210,6 +213,7 @@ cfg["paths"]["transcript_dir"] = os.path.join(task_root, "transcripts")
 cfg["experiment"]["max_iters"] = int(max_iters)
 cfg["evaluation"]["eval_timeout"] = int(eval_timeout)
 cfg["evaluation"]["benchmark_level"] = benchmark_level
+cfg["evaluation"]["benchmark_protocol"] = benchmark_protocol
 cfg["evaluation"]["max_parallel_evals"] = int(max_parallel_evals)
 cfg["compilation"]["recompile_timeout"] = int(recompile_timeout)
 
@@ -247,6 +251,7 @@ echo "TASK_NAME: ${TASK_NAME}"
 echo "CONFIG_YAML: ${RUNTIME_CONFIG_YAML}"
 echo "DATA_PATH: ${MULTIEVOLVE_DATA_PATH}"
 echo "BENCHMARK_LEVEL: ${MULTIEVOLVE_BENCHMARK_LEVEL}"
+echo "BENCHMARK_PROTOCOL: ${MULTIEVOLVE_BENCHMARK_PROTOCOL}"
 echo "ALGORITHM: ${ADVANTAGE_ESTIMATOR_ALGORITHM}"
 echo "REWARD_PROCESS_TYPE: ${REWARD_PROCESS_TYPE}"
 echo "HYBRID_ALPHA_START: ${HYBRID_ALPHA}"

@@ -43,7 +43,7 @@ The paper-style setup is:
 - measure how well the model extrapolates from local epistatic observations to unseen multimutants
 
 This repo task uses public DMS datasets from the MULTI-evolve benchmark data release and evaluates:
-- mean Pearson R on held-out 3-10 mutants
+- mean Pearson R on held-out higher-order mutants
 - mean top-5% precision, where the predicted top 5% is compared with the truly best 5%
 
 The final benchmark score is `0.7 * mean_pearson_r + 0.3 * mean_precision_top5`.

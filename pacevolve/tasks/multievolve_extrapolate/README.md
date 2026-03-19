@@ -3,7 +3,7 @@
 This task implements the following from the MULTI-evolve paper as a public-data benchmark:
 
 - train on singles + doubles
-- test on unseen 3-10 mutants
+- test on unseen higher-order mutants
 - optimize Pearson R and top-5% precision
 
 It is designed to be reproducible from the public benchmark data release referenced by the MULTI-evolve repo.
@@ -13,12 +13,18 @@ It is designed to be reproducible from the public benchmark data release referen
 
 The task uses a representative `lite` subset by default to keep repeated evolutionary evaluation tractable. The task also ships a `full` manifest covering all 12 benchmark assays from the MULTI-evolve summary.
 
+It supports two split protocols:
+
+- `paper`: train on WT + singles + doubles, test on all qualifying 3+ mutants
+- `released_code`: align split thresholds to the public MULTI-evolve benchmark notebook (`max_train_muts=3`, `min_test_muts=4`)
+
 ### Default split
 
 For each dataset:
 
-- Train: wild type, singles, and doubles
-- Test: 3-10 mutants
+- Train/Test depends on `benchmark_protocol`
+- `paper`: train wild type, singles, and doubles; test 3+ mutants
+- `released_code`: train up to triple mutants; test 4+ mutants
 - Filter: keep only multimutants whose constituent mutations appear as singles in the same dataset
 
 This follows the paper-aligned low-order-to-high-order extrapolation setup and the preprocessing logic in the public MULTI-evolve repo.
@@ -52,7 +58,7 @@ The intended search surface includes:
 
 ```bash
 python pacevolve/tasks/multievolve_extrapolate/data/download_public_data.py --benchmark-level lite
-python pacevolve/tasks/multievolve_extrapolate/data/prepare_public_benchmark.py --benchmark-level lite
+python pacevolve/tasks/multievolve_extrapolate/data/prepare_public_benchmark.py --benchmark-level lite --benchmark-protocol paper
 ```
 
 ### Option 2: Copy from an existing local MULTI-evolve data folder
@@ -63,13 +69,13 @@ If you already downloaded the CSVs into `MULTI-evolve/data/benchmark/datasets`:
 python pacevolve/tasks/multievolve_extrapolate/data/download_public_data.py \
   --benchmark-level lite \
   --source-dir /path/to/MULTI-evolve/data/benchmark/datasets
-python pacevolve/tasks/multievolve_extrapolate/data/prepare_public_benchmark.py --benchmark-level lite
+python pacevolve/tasks/multievolve_extrapolate/data/prepare_public_benchmark.py --benchmark-level lite --benchmark-protocol paper
 ```
 
 Prepared artifacts are written under:
 
 - `pacevolve/tasks/multievolve_extrapolate/data/raw`
-- `pacevolve/tasks/multievolve_extrapolate/data/prepared/lite`
+- `pacevolve/tasks/multievolve_extrapolate/data/prepared/lite/paper`
 
 ## Running the evaluator
 
@@ -77,7 +83,8 @@ Prepared artifacts are written under:
 python pacevolve/tasks/multievolve_extrapolate/eval/evaluate_multievolve_extrapolate.py \
   --candidate_path pacevolve/tasks/multievolve_extrapolate/src/multievolve_extrapolate_1.py \
   --data_dir pacevolve/tasks/multievolve_extrapolate/data \
-  --benchmark_level lite
+  --benchmark_level lite \
+  --benchmark_protocol paper
 ```
 
 For syntax-only validation:
@@ -87,6 +94,7 @@ python pacevolve/tasks/multievolve_extrapolate/eval/evaluate_multievolve_extrapo
   --candidate_path pacevolve/tasks/multievolve_extrapolate/src/multievolve_extrapolate_1.py \
   --data_dir pacevolve/tasks/multievolve_extrapolate/data \
   --benchmark_level lite \
+  --benchmark_protocol paper \
   --syntax_only
 ```
 
@@ -102,6 +110,7 @@ Default behavior:
 
 - runs `multievolve_extrapolate`
 - uses the `lite` benchmark
+- uses the `paper` split protocol
 - uses `HYBRID_PKPO_GRPO` with `HYBRID_GRPO_VARIANT=dr_grpo`
 - anneals `HYBRID_ALPHA` from `0.0` to `0.8` over `200` steps
 - reserves a 16-GPU node as `4 train + 8 rollout + 4 eval`
@@ -121,6 +130,7 @@ Useful overrides:
 
 ```bash
 MULTIEVOLVE_BENCHMARK_LEVEL=full \
+MULTIEVOLVE_BENCHMARK_PROTOCOL=released_code \
 MULTIEVOLVE_AUTO_DOWNLOAD=1 \
 WANDB_PROJECT=my_project \
 bash /Users/minghao/PACE-RL/run_multievolve.sh

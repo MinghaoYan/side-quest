@@ -73,13 +73,15 @@ def _build_command(config: dict, syntax_only: bool = False) -> str:
     eval_script = os.path.join(eval_path, config["evaluation"]["eval_script_name"])
     candidate_script = os.path.join(src_path, config["paths"]["target_file_path"])
     benchmark_level = config["evaluation"].get("benchmark_level", "lite")
+    benchmark_protocol = config["evaluation"].get("benchmark_protocol", "paper")
     cuda_prefix = _get_cuda_prefix(config)
     python_executable = _get_python_executable()
     command = (
         f"{cuda_prefix}{python_executable} {shlex.quote(eval_script)} "
         f"--candidate_path {shlex.quote(candidate_script)} "
         f"--data_dir {shlex.quote(data_path)} "
-        f"--benchmark_level {shlex.quote(str(benchmark_level))}"
+        f"--benchmark_level {shlex.quote(str(benchmark_level))} "
+        f"--benchmark_protocol {shlex.quote(str(benchmark_protocol))}"
     )
     if syntax_only:
         command += " --syntax_only"

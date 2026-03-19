@@ -37,9 +37,13 @@ def _syntax_check(candidate_path: str) -> None:
         raise AttributeError("Missing `fit_and_predict` function")
 
 
-def evaluate(candidate_path: str, data_dir: str, benchmark_level: str) -> dict:
+def evaluate(candidate_path: str, data_dir: str, benchmark_level: str, benchmark_protocol: str) -> dict:
     candidate_module = _load_candidate(candidate_path)
-    benchmark_payloads = reference.load_prepared_benchmark(Path(data_dir), benchmark_level=benchmark_level)
+    benchmark_payloads = reference.load_prepared_benchmark(
+        Path(data_dir),
+        benchmark_level=benchmark_level,
+        benchmark_protocol=benchmark_protocol,
+    )
     return reference.evaluate_predictions(benchmark_payloads, candidate_module)
 
 
@@ -48,6 +52,12 @@ def main() -> int:
     parser.add_argument("--candidate_path", required=True, type=str)
     parser.add_argument("--data_dir", required=True, type=str)
     parser.add_argument("--benchmark_level", default="lite", choices=["lite", "full"], type=str)
+    parser.add_argument(
+        "--benchmark_protocol",
+        default=reference.DEFAULT_BENCHMARK_PROTOCOL,
+        choices=["paper", "released_code"],
+        type=str,
+    )
     parser.add_argument(
         "--syntax_only",
         action="store_true",
@@ -61,7 +71,12 @@ def main() -> int:
             print("Syntax check passed.")
             return 0
 
-        metrics = evaluate(args.candidate_path, args.data_dir, args.benchmark_level)
+        metrics = evaluate(
+            args.candidate_path,
+            args.data_dir,
+            args.benchmark_level,
+            args.benchmark_protocol,
+        )
         print("Candidate: " + json.dumps(metrics, sort_keys=True))
         return 0
     except Exception as exc:

@@ -33,6 +33,7 @@ evaluation:
   eval_max_retries: 1
   eval_script_name: "evaluate_multievolve_extrapolate.py"
   benchmark_level: "lite"
+  benchmark_protocol: "paper"
   max_parallel_evals: 2
   target_score: 0.70
   init_score: 0.0

@@ -15,10 +15,29 @@ import pandas as pd
 MANIFEST_FILENAME = "benchmark_manifest.json"
 RAW_DIRNAME = "raw"
 PREPARED_DIRNAME = "prepared"
+DEFAULT_BENCHMARK_PROTOCOL = "paper"
 
 
 def _task_data_dir_from_file() -> Path:
     return Path(__file__).resolve().parents[1] / "data"
+
+
+def _resolve_protocol_bounds(benchmark_protocol: str) -> dict[str, Any]:
+    if benchmark_protocol == "paper":
+        return {
+            "max_train_mutations": 2,
+            "min_test_mutations": 3,
+            "max_test_mutations": None,
+        }
+    if benchmark_protocol == "released_code":
+        return {
+            "max_train_mutations": 3,
+            "min_test_mutations": 4,
+            "max_test_mutations": None,
+        }
+    raise ValueError(
+        f"Unknown benchmark protocol '{benchmark_protocol}'. Expected one of ['paper', 'released_code']."
+    )
 
 
 def load_manifest(data_dir: Optional[Path] = None, benchmark_level: str = "lite") -> list[dict[str, Any]]:
@@ -75,10 +94,12 @@ def prepare_single_dataset(
     entry: dict[str, Any],
     prepared_dir: Path,
     force: bool = False,
-    max_train_mutations: int = 2,
-    min_test_mutations: int = 3,
-    max_test_mutations: int = 10,
+    benchmark_protocol: str = DEFAULT_BENCHMARK_PROTOCOL,
 ) -> dict[str, Any]:
+    bounds = _resolve_protocol_bounds(benchmark_protocol)
+    max_train_mutations = int(bounds["max_train_mutations"])
+    min_test_mutations = int(bounds["min_test_mutations"])
+    max_test_mutations = bounds["max_test_mutations"]
     prepared_path = prepared_dir / f"{entry['DMS_id']}.pkl"
     if prepared_path.exists() and not force:
         payload = pd.read_pickle(prepared_path)
@@ -89,10 +110,13 @@ def prepare_single_dataset(
     valid = valid[np.isfinite(valid["DMS_score"])].copy()
 
     train_df = valid[(valid["num_mutations"] <= max_train_mutations)].copy()
-    test_df = valid[
-        (valid["num_mutations"] >= min_test_mutations)
-        & (valid["num_mutations"] <= max_test_mutations)
-    ].copy()
+    if max_test_mutations is None:
+        test_df = valid[(valid["num_mutations"] >= min_test_mutations)].copy()
+    else:
+        test_df = valid[
+            (valid["num_mutations"] >= min_test_mutations)
+            & (valid["num_mutations"] <= max_test_mutations)
+        ].copy()
 
     if train_df.empty or test_df.empty:
         raise ValueError(
@@ -116,6 +140,7 @@ def prepare_single_dataset(
             "molecule_name": entry["molecule_name"],
             "selection_assay": entry["selection_assay"],
             "coarse_selection_type": entry["coarse_selection_type"],
+            "benchmark_protocol": benchmark_protocol,
             "max_train_mutations": max_train_mutations,
             "min_test_mutations": min_test_mutations,
             "max_test_mutations": max_test_mutations,
@@ -129,6 +154,7 @@ def prepare_single_dataset(
             "train_single_count": int((train_df["num_mutations"] == 1).sum()),
             "train_double_count": int((train_df["num_mutations"] == 2).sum()),
             "test_top_mutation_load": int(test_df["num_mutations"].max()),
+            "benchmark_protocol": benchmark_protocol,
         },
     }
     prepared_dir.mkdir(parents=True, exist_ok=True)
@@ -136,14 +162,28 @@ def prepare_single_dataset(
     return dict(payload["summary"])
 
 
-def prepare_public_benchmark(data_dir: Path, benchmark_level: str = "lite", force: bool = False) -> dict[str, Any]:
+def prepare_public_benchmark(
+    data_dir: Path,
+    benchmark_level: str = "lite",
+    benchmark_protocol: str = DEFAULT_BENCHMARK_PROTOCOL,
+    force: bool = False,
+) -> dict[str, Any]:
     manifest = load_manifest(data_dir, benchmark_level)
-    prepared_dir = Path(data_dir) / PREPARED_DIRNAME / benchmark_level
+    prepared_dir = Path(data_dir) / PREPARED_DIRNAME / benchmark_level / benchmark_protocol
     summaries = []
     for entry in manifest:
-        summaries.append(prepare_single_dataset(Path(data_dir), entry, prepared_dir, force=force))
+        summaries.append(
+            prepare_single_dataset(
+                Path(data_dir),
+                entry,
+                prepared_dir,
+                force=force,
+                benchmark_protocol=benchmark_protocol,
+            )
+        )
     summary = {
         "benchmark_level": benchmark_level,
+        "benchmark_protocol": benchmark_protocol,
         "prepared_dir": str(prepared_dir),
         "datasets": summaries,
     }
@@ -152,8 +192,12 @@ def prepare_public_benchmark(data_dir: Path, benchmark_level: str = "lite", forc
     return summary
 
 
-def load_prepared_benchmark(data_dir: Path, benchmark_level: str = "lite") -> list[dict[str, Any]]:
-    prepared_dir = Path(data_dir) / PREPARED_DIRNAME / benchmark_level
+def load_prepared_benchmark(
+    data_dir: Path,
+    benchmark_level: str = "lite",
+    benchmark_protocol: str = DEFAULT_BENCHMARK_PROTOCOL,
+) -> list[dict[str, Any]]:
+    prepared_dir = Path(data_dir) / PREPARED_DIRNAME / benchmark_level / benchmark_protocol
     manifest = load_manifest(data_dir, benchmark_level)
     datasets = []
     for entry in manifest:
@@ -233,10 +277,14 @@ def evaluate_predictions(
     mean_pearson = float(np.mean(pearsons)) if pearsons else 0.0
     mean_precision_top5 = float(np.mean(precisions)) if precisions else 0.0
     combined_score = float(0.7 * mean_pearson + 0.3 * mean_precision_top5)
+    benchmark_protocol = None
+    if benchmark_payloads:
+        benchmark_protocol = benchmark_payloads[0].get("metadata", {}).get("benchmark_protocol")
     return {
         "combined_score": combined_score,
         "mean_pearson_r": mean_pearson,
         "mean_precision_top5": mean_precision_top5,
         "num_datasets": int(len(dataset_metrics)),
+        "benchmark_protocol": benchmark_protocol,
         "datasets": dataset_metrics,
     }

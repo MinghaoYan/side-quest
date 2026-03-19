@@ -24,6 +24,12 @@ def parse_args() -> argparse.Namespace:
         help="Benchmark subset to prepare.",
     )
     parser.add_argument(
+        "--benchmark-protocol",
+        default=reference.DEFAULT_BENCHMARK_PROTOCOL,
+        choices=["paper", "released_code"],
+        help="Benchmark split protocol to prepare.",
+    )
+    parser.add_argument(
         "--data-dir",
         default=str(Path(__file__).resolve().parent),
         help="Task data directory containing raw/ and prepared/ folders.",
@@ -42,6 +48,7 @@ def main() -> int:
     summary = reference.prepare_public_benchmark(
         data_dir=data_dir,
         benchmark_level=args.benchmark_level,
+        benchmark_protocol=args.benchmark_protocol,
         force=args.force,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
