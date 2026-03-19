@@ -7,7 +7,7 @@ PACEvolve task for evolving a Wukong-style sequential recommender on the KuaRec 
 Maximize held-out next-item ranking quality on `kuairec` while keeping:
 
 - Dataset fixed: KuaRec only
-- Training epochs fixed: 16 epochs
+- Training epochs fixed: 8 epochs
 - Training loop fixed: sampled-softmax training and full-catalog evaluation
 - Runtime budget fixed: intended to fit roughly within 5 minutes on 1xA100
 
@@ -88,8 +88,8 @@ python pacevolve/tasks/kuairec_wukong/eval/evaluate_kuairec_wukong.py \
 
 The current baseline model in [`src/train_wukong.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec_wukong/src/train_wukong.py) has:
 
-- `1,289,617` trainable parameters
-- about `4.9 MB` of weights in FP32
+- `31,013,281` trainable parameters
+- about `118.3 MB` of weights in FP32
 
 That is small for an A100. The largest parameter blocks are the shared sparse embedding table, the Wukong factorization MLP outputs, and the final user projection head.
 
@@ -97,7 +97,7 @@ That is small for an A100. The largest parameter blocks are the shared sparse em
 
 The 5-minute target is an engineering estimate from the fixed scaffold rather than a paper-verified timing number. It is reasonable because:
 
-- The baseline is only about `1.29M` parameters.
+- The baseline is now about `31.0M` parameters.
 - Training uses one fixed next-item target per user for train and eval, not full autoregressive supervision over every position.
 - Training uses sampled-softmax with `127` negatives instead of full-catalog loss.
 - Evaluation is full-catalog, but `kuairec` is only about `9.96k` items after the standard remapping used here.

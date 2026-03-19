@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader, Dataset
 
 SEED = 42
 MAX_HISTORY = 64
-NUM_EPOCHS = 16
+NUM_EPOCHS = 8
 TRAIN_BATCH_SIZE = 1024
 EVAL_BATCH_SIZE = 2048
 LEARNING_RATE = 3e-4
@@ -234,11 +234,11 @@ class SequenceFeatureBuilder:
         self,
         num_items: int,
         max_history: int,
-        recent_slots: int = 16,
-        frequent_slots: int = 4,
-        gap_slots: int = 4,
-        num_gap_buckets: int = 12,
-        num_stat_buckets: int = 8,
+        recent_slots: int = 20,
+        frequent_slots: int = 8,
+        gap_slots: int = 6,
+        num_gap_buckets: int = 16,
+        num_stat_buckets: int = 12,
     ) -> None:
         self.num_items = num_items
         self.max_history = max_history
@@ -254,7 +254,7 @@ class SequenceFeatureBuilder:
 
         self.total_vocab_size = self.ratio_offset + num_stat_buckets
         self.num_sparse_fields = recent_slots + frequent_slots + gap_slots + 2
-        self.dense_dim = 8
+        self.dense_dim = 10
 
     def _bucketize_gap(self, value: float) -> int:
         if value <= 0:
@@ -325,6 +325,8 @@ class SequenceFeatureBuilder:
             dense[row_idx, 5] = math.log1p(std_gap)
             dense[row_idx, 6] = math.log1p(last_gap)
             dense[row_idx, 7] = float(items[-1].item()) / float(self.num_items)
+            dense[row_idx, 8] = math.log1p(float(times[-1].item() - times[0].item()))
+            dense[row_idx, 9] = float(counts.max().item()) / float(length)
 
         return sparse, dense
 
@@ -426,7 +428,7 @@ class WukongSequenceModel(BaseSequenceRecommender):
         super().__init__()
         self.num_items = num_items
         self.max_history = max_history
-        self.dim_emb = 48
+        self.dim_emb = 160
 
         self.feature_builder = SequenceFeatureBuilder(num_items=num_items, max_history=max_history)
         self.sparse_embedding = nn.Embedding(
@@ -445,38 +447,50 @@ class WukongSequenceModel(BaseSequenceRecommender):
                 WukongLayer(
                     num_emb_in=num_fields,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=12,
-                    num_emb_fmb=12,
-                    rank_fmb=8,
-                    hidden_dim=192,
-                    dropout=0.1,
+                    num_emb_lcb=28,
+                    num_emb_fmb=28,
+                    rank_fmb=16,
+                    hidden_dim=1024,
+                    dropout=0.15,
                 ),
                 WukongLayer(
-                    num_emb_in=24,
+                    num_emb_in=56,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=12,
-                    num_emb_fmb=12,
-                    rank_fmb=8,
-                    hidden_dim=192,
-                    dropout=0.1,
+                    num_emb_lcb=28,
+                    num_emb_fmb=28,
+                    rank_fmb=16,
+                    hidden_dim=1024,
+                    dropout=0.15,
                 ),
                 WukongLayer(
-                    num_emb_in=24,
+                    num_emb_in=56,
                     dim_emb=self.dim_emb,
-                    num_emb_lcb=12,
-                    num_emb_fmb=12,
-                    rank_fmb=8,
-                    hidden_dim=192,
-                    dropout=0.1,
+                    num_emb_lcb=28,
+                    num_emb_fmb=28,
+                    rank_fmb=16,
+                    hidden_dim=1024,
+                    dropout=0.15,
+                ),
+                WukongLayer(
+                    num_emb_in=56,
+                    dim_emb=self.dim_emb,
+                    num_emb_lcb=28,
+                    num_emb_fmb=28,
+                    rank_fmb=16,
+                    hidden_dim=1024,
+                    dropout=0.15,
                 ),
             ]
         )
         self.field_gate = nn.Linear(self.dim_emb, 1)
         self.user_head = nn.Sequential(
-            nn.Linear(24 * self.dim_emb + 2 * self.dim_emb, 256),
+            nn.Linear(56 * self.dim_emb + 2 * self.dim_emb, 768),
             nn.GELU(),
-            nn.LayerNorm(256),
-            nn.Linear(256, self.dim_emb),
+            nn.LayerNorm(768),
+            nn.Linear(768, 384),
+            nn.GELU(),
+            nn.LayerNorm(384),
+            nn.Linear(384, self.dim_emb),
         )
         self.item_bias = nn.Parameter(torch.zeros(num_items + 1))
 
