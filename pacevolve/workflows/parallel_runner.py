@@ -45,6 +45,10 @@ class IterationResult:
     error: Optional[str] = None
     elapsed: float = 0.0
     updated_idea_repo: Optional[object] = None
+    analysis_success: bool = False
+    analysis_attempts: int = 0
+    analysis_metrics: dict = dataclasses.field(default_factory=dict)
+    analysis_errors: list = dataclasses.field(default_factory=list)
 
 
 def _worker_init(config_dict: dict, project_root: str):
@@ -227,6 +231,33 @@ def _run_island_iteration(
             loop_config=config['workflow_loops']['initial_eval'],
         )
         transcript.hide_by_tag(tags=["initial_eval_loop"])
+        if bool(config.get("analysis", {}).get("enabled", True)):
+            try:
+                analysis_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
+                    prompts, trial, transcript
+                )
+                trial = workflow_utils.run_post_eval_analysis(
+                    llm_name=llm_name,
+                    trial=trial,
+                    transcript=transcript,
+                    config=config,
+                    analysis_prompt=analysis_prompt,
+                    max_attempts=max(1, min(max_attempt, 3)),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Parallel post-eval analysis crashed for iter %s island %s: %s",
+                    iteration,
+                    island_id,
+                    exc,
+                )
+                trial.analysis_success = False
+                trial.analysis_errors.append(f"Post-eval analysis crashed: {exc}")
+            transcript.hide_by_tag(tags=["post_eval_analysis_loop"])
+            result.analysis_success = trial.analysis_success
+            result.analysis_attempts = trial.analysis_attempts
+            result.analysis_metrics = trial.analysis_metrics
+            result.analysis_errors = trial.analysis_errors
         if not all(trial.eval_success):
             _finalize_idea_repo_worker(
                 new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
@@ -289,6 +320,10 @@ def _run_island_iteration(
         result.success = True
         result.elapsed = time.time() - t0
         result.updated_idea_repo = new_idea_repo
+        result.analysis_success = trial.analysis_success
+        result.analysis_attempts = trial.analysis_attempts
+        result.analysis_metrics = trial.analysis_metrics
+        result.analysis_errors = trial.analysis_errors
         return result
 
     except Exception as e:

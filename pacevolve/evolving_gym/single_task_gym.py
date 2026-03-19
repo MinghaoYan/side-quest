@@ -312,6 +312,12 @@ class PACEvolveSingleTaskGym:
         self._idea_cap = kwargs.get("idea_cap", 5)
         self._merge_freq = kwargs.get("merge_freq", 1)
         self._summarize_freq = kwargs.get("summarize_freq", 20)
+        self._analysis_enabled = bool(
+            kwargs.get(
+                "enable_post_eval_analysis",
+                self.config.get("analysis", {}).get("enabled", True),
+            )
+        )
 
         self._per_island_count = [0] * num_islands
         self._last_crossover_idx = [0] * num_islands
@@ -342,7 +348,8 @@ class PACEvolveSingleTaskGym:
             f"[PACEvolveSingleTaskGym] Initialized for task={self.task_id}, "
             f"islands={num_islands}, reward_type={reward_process_type}, "
             f"max_concurrent_evaluations={self.max_concurrent_evaluations}, "
-            f"eval_gpu_ids={self._eval_gpu_ids}",
+            f"eval_gpu_ids={self._eval_gpu_ids}, "
+            f"post_eval_analysis={self._analysis_enabled}",
             flush=True,
         )
 
@@ -883,7 +890,12 @@ Original policy output:
                     self._eval_gpu_queue.put_nowait(eval_gpu_id)
 
     def _make_error_result(
-        self, parent: ParentProgram, error: str, code: str = "", t0: float = 0.0,
+        self,
+        parent: ParentProgram,
+        error: str,
+        code: str = "",
+        t0: float = 0.0,
+        artifacts: Optional[Dict[str, Any]] = None,
     ) -> Result:
         combined_score = -1.0
         child_metrics = {
@@ -903,6 +915,7 @@ Original policy output:
         result.child_program = child
         result.child_metrics = child_metrics
         result.iteration_time = time.time() - t0
+        result.artifacts = artifacts
         return result
 
     def _score_response_sync(
@@ -1049,6 +1062,7 @@ Original policy output:
             config_override, compile_config_override, cleanup_workspace = (
                 self._create_sample_workspace(eval_gpu_id=eval_gpu_id)
             )
+            analysis_artifacts = None
             print(
                 f"[PACEvolve] Using temp workspace target_file={compile_config_override.target_file_path} "
                 f"eval_gpu_id={eval_gpu_id}",
@@ -1084,16 +1098,49 @@ Original policy output:
                     candidate_id, baseline_id,
                     loop_config=self.config["workflow_loops"]["initial_eval"],
                 )
+                if self._analysis_enabled:
+                    try:
+                        post_eval_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
+                            prompts,
+                            trial,
+                            transcript,
+                        )
+                        trial = workflow_utils.run_post_eval_analysis(
+                            llm_name=self._llm_name,
+                            trial=trial,
+                            transcript=transcript,
+                            config=config_override,
+                            analysis_prompt=post_eval_prompt,
+                            max_attempts=max(1, min(self._max_attempt, 3)),
+                        )
+                    except Exception as e:
+                        logger.warning("Post-eval analysis crashed: %s", e)
+                        trial.analysis_success = False
+                        trial.analysis_errors.append(f"Post-eval analysis crashed: {e}")
+                    analysis_artifacts = {
+                        "analysis": {
+                            "success": trial.analysis_success,
+                            "attempts": trial.analysis_attempts,
+                            "metrics": dict(trial.analysis_metrics),
+                            "errors": list(trial.analysis_errors),
+                            "results": trial.analysis_results,
+                        }
+                    }
             finally:
                 cleanup_workspace()
             transcript.hide_by_tag(tags=["initial_eval_loop"])
+            if self._analysis_enabled:
+                transcript.hide_by_tag(tags=["post_eval_analysis_loop"])
+                if not trial.analysis_success:
+                    logger.warning("Post-eval analysis did not complete successfully.")
 
             if not all(trial.eval_success):
                 logger.warning("Evaluation failed after retries.")
                 self._finalize_idea_repo(island_id, new_idea_repo, last_bt_iter,
                                          repo_idx_before_backtrack, trigger_merge, append=False)
                 return self._make_error_result(parent_program, "eval_error",
-                                              code=trial.algorithm_implementation, t0=t0)
+                                              code=trial.algorithm_implementation, t0=t0,
+                                              artifacts=analysis_artifacts)
 
             # ----- Step 6: Log eval results + parse score -----
             transcript.append(ContentChunk(
@@ -1175,6 +1222,12 @@ Original policy output:
                 for key, value in eval_metrics.items():
                     if key not in child_metrics:
                         child_metrics[key] = value
+            if self._analysis_enabled:
+                child_metrics["analysis_success"] = 1.0 if trial.analysis_success else 0.0
+                child_metrics["analysis_attempts"] = float(trial.analysis_attempts)
+                for key, value in (trial.analysis_metrics or {}).items():
+                    if key not in child_metrics:
+                        child_metrics[key] = value
             child = ChildProgram(
                 id=str(uuid.uuid4()),
                 code=trial.algorithm_implementation,
@@ -1200,6 +1253,7 @@ Original policy output:
             result.child_metrics = child_metrics
             result.llm_response = response
             result.iteration_time = time.time() - t0
+            result.artifacts = analysis_artifacts
             return result
 
         except Exception as e:

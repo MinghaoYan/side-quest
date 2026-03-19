@@ -215,6 +215,7 @@ if __name__ == "__main__":
   # Load configurations
   CONFIG_PATH = os.path.abspath(f"../tasks/{args.task_id}/config/{args.dataset_id}/config_{args.run_id}.yaml")
   config, compile_config, eval_configs, llm_name = load_configs(CONFIG_PATH)
+  analysis_enabled = bool(config.get("analysis", {}).get("enabled", True))
 
   logfile_dir = os.path.expanduser(config['paths']['log_dir'])
   logfile_path = os.path.join(logfile_dir, f"controller_verbose_{timestamp}.log")
@@ -439,6 +440,26 @@ if __name__ == "__main__":
       loop_config=config['workflow_loops']['initial_eval'],
     )
     transcript.hide_by_tag(tags=["initial_eval_loop"])
+    if analysis_enabled:
+      try:
+        post_eval_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
+          prompts, trial, transcript
+        )
+        trial = workflow_utils.run_post_eval_analysis(
+          llm_name=llm_name,
+          trial=trial,
+          transcript=transcript,
+          config=config,
+          analysis_prompt=post_eval_prompt,
+          max_attempts=max(1, min(args.max_attempt, 3)),
+        )
+      except Exception as exc:
+        logger.warning(f"Iter {i}: Post-eval analysis crashed: {exc}")
+        trial.analysis_success = False
+        trial.analysis_errors.append(f"Post-eval analysis crashed: {exc}")
+      transcript.hide_by_tag(tags=["post_eval_analysis_loop"])
+      if not trial.analysis_success:
+        logger.warning(f"Iter {i}: Post-eval analysis did not complete successfully.")
     if not all(trial.eval_success):
       logger.error(f"Iter {i}: Candidate failed eval. Skipping to next iteration.")
       if last_bt_iter and args.merge_freq > -1:
