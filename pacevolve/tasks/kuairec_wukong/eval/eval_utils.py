@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import math
 import os
 import re
 import shlex
@@ -159,10 +160,20 @@ def parse_eval_results(
         payload = parse_eval_metrics(eval_results)
         if payload is None:
             return None
+        if not payload.get("valid_run", True):
+            logger.error(
+                "Candidate reported an invalid run: %s",
+                payload.get("failure_reason", "unknown reason"),
+            )
+            return None
         if not payload.get("within_budget", False):
             logger.error("Candidate exceeded the fixed runtime budget.")
             return None
-        return float(payload["combined_score"])
+        score = float(payload["combined_score"])
+        if not math.isfinite(score):
+            logger.error("Candidate produced a non-finite combined_score.")
+            return None
+        return score
 
     if isinstance(eval_results, list):
         parsed_results = []

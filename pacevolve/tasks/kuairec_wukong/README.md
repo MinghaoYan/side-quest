@@ -118,10 +118,16 @@ The candidate script prints a JSON payload with:
 - `combined_score`
 - `wall_time_sec`
 - `within_budget`
+- `valid_run`
 
 `combined_score` is the optimization target and is defined as:
 
 `(ndcg@10 + hr@10 + mrr) / 3`
+
+Non-finite runs are treated as invalid:
+
+- If training or evaluation produces non-finite tensors or loss, the script marks `valid_run=false`.
+- PACEvolve then treats that candidate as invalid instead of allowing accidental reward through degenerate ranking behavior.
 
 ### What These Metrics Mean
 

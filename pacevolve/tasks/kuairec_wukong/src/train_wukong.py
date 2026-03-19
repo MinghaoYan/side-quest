@@ -595,11 +595,26 @@ def build_loader(split: PreparedSplit, batch_size: int, shuffle: bool) -> DataLo
     )
 
 
+def all_finite(tensor: Tensor) -> bool:
+    return bool(torch.isfinite(tensor).all().item())
+
+
+def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
+    return {
+        "combined_score": 0.0,
+        "ndcg@10": 0.0,
+        "hr@10": 0.0,
+        "mrr": 0.0,
+        "valid_run": False,
+        "failure_reason": reason,
+    }
+
+
 def evaluate_model(
     model: BaseSequenceRecommender,
     loader: DataLoader,
     device: torch.device,
-) -> dict[str, float]:
+) -> dict[str, float | bool | str]:
     model.eval()
     ndcg10_sum = 0.0
     hr10_sum = 0.0
@@ -616,6 +631,10 @@ def evaluate_model(
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
                 user_embeddings = model.encode_users(history_ids, history_timestamps, history_lengths)
                 scores = model.score_all_items(user_embeddings).float()
+            if not all_finite(user_embeddings):
+                return invalid_metrics("Non-finite user embeddings encountered during evaluation.")
+            if not all_finite(scores):
+                return invalid_metrics("Non-finite item scores encountered during evaluation.")
 
             target_index = target_ids - 1
             for row_idx in range(scores.size(0)):
@@ -626,6 +645,8 @@ def evaluate_model(
                     scores[row_idx, seen] = -1e9
 
             target_scores = scores.gather(1, target_index.unsqueeze(1)).squeeze(1)
+            if not all_finite(target_scores):
+                return invalid_metrics("Non-finite target scores encountered during evaluation.")
             ranks = 1 + (scores > target_scores.unsqueeze(1)).sum(dim=1)
             mrr_sum += (1.0 / ranks.float()).sum().item()
 
@@ -649,6 +670,7 @@ def evaluate_model(
         "ndcg@10": ndcg10,
         "hr@10": hr10,
         "mrr": mrr,
+        "valid_run": True,
     }
 
 
@@ -674,6 +696,8 @@ def train_and_evaluate(dataset_csv: str) -> None:
     eval_loader = build_loader(prepared.eval, EVAL_BATCH_SIZE, shuffle=False)
 
     last_loss = 0.0
+    valid_run = True
+    failure_reason = ""
     train_start = time.time()
     for _epoch in range(NUM_EPOCHS):
         model.train()
@@ -690,13 +714,30 @@ def train_and_evaluate(dataset_csv: str) -> None:
                 user_embeddings = model.encode_users(history_ids, history_timestamps, history_lengths)
                 logits = score_training_candidates(model, user_embeddings, candidate_ids)
                 loss = F.cross_entropy(logits, torch.zeros(logits.size(0), dtype=torch.long, device=device))
+            if not all_finite(user_embeddings):
+                valid_run = False
+                failure_reason = "Non-finite user embeddings encountered during training."
+                break
+            if not all_finite(logits):
+                valid_run = False
+                failure_reason = "Non-finite logits encountered during training."
+                break
+            if not all_finite(loss.reshape(1)):
+                valid_run = False
+                failure_reason = "Non-finite training loss encountered."
+                break
             loss.backward()
             optimizer.step()
             last_loss = float(loss.item())
+        if not valid_run:
+            break
     train_time = time.time() - train_start
 
     eval_start = time.time()
-    metrics = evaluate_model(model, eval_loader, device)
+    if valid_run:
+        metrics = evaluate_model(model, eval_loader, device)
+    else:
+        metrics = invalid_metrics(failure_reason)
     eval_time = time.time() - eval_start
     wall_time = time.time() - wall_start
     metrics.update(
