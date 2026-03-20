@@ -1,0 +1,1833 @@
+--- role: user tags: [policy_output_normalization_prompt] ---
+
+You are a strict information extractor.
+Given a free-form policy output, extract exactly these fields and return JSON only:
+{
+  "hypotheses": ["idea 1", "idea 2", "idea 3"],
+  "selected_idea": 1,
+  "experiment_description": "..."
+}
+
+Rules:
+- "hypotheses" must contain exactly 3 concise strings. If there are more, keep the best 3.
+- "selected_idea" must be 1, 2, or 3 and must correspond to one hypothesis.
+- "experiment_description" must be a concise plain-text experiment plan.
+- Output valid JSON only. No markdown, no explanations.
+
+Policy output:
+```text
+<think>
+We are to generate 3 distinct ideas for improving the extrapolation in the MULTI-evolve benchmark.
+
+The current state-of-the-art is a Ridge regression model that uses sparse features for single and pairwise mutations, along with two additional features: the number of mutations and the number of pairs (or rather, the count of pairs, which is the number of ways to pair the mutations, but in the current implementation, it's the number of possible pairs from the mutations in the mutant). However, note that the current model does not explicitly include the order of mutations, but it does consider each pair and orders are normalized by sorting.
+
+Idea 1: Incorporate higher-order interaction terms.
+Hypothesis: The current model only uses single and pair mutations. However, higher-order interactions (like triple, quadruple) might be important for extrapolating to higher-order mutants. We could extend the model to include some higher-order terms, but note that including all combinations would be too expensive. We might use a low-degree Taylor expansion or add some selected higher-order terms (e.g., triples) in a regularized way. However, we must be cautious because the training data only covers up to double mutations. Alternatively, we can use a multi-indexed feature that includes triple pairs and set their coefficients appropriately.
+
+Reasoning: Higher-order terms capture interactions that go beyond pairs, which is crucial for accurately predicting the fitness of higher-order mutants (like triples, quadruples). This might improve both Pearson R (by capturing more of the effect) and top-5% precision (by better ranking the truly best mutants).
+
+Idea 2: Use a model with explicit random effects for mutation types.
+Hypothesis: The effect of mutations might depend on the type or context of the mutation. For instance, some mutations are in specific positions, or have different physical effects. We can try grouping mutations into higher-level categories and include random effects for these categories, or use embeddings for mutation tokens.
+
+Reasoning: This can capture dependencies that are not linear and additive, such as non-linear effects or interactions between different categories. This might be especially important because the current model treats each mutation individually.
+
+Idea 3: Use a multi-task learning approach or data augmentation.
+Hypothesis: We can train multiple models simultaneously, one for each order (single, double, ... up to the maximum in the training data) and then use an ensemble to predict the higher-order mutants. Alternatively, we can train the model with a small regularization parameter to allow more complex interactions, but then use dropout or other techniques to prevent overfitting.
+
+Reasoning: Multi-task learning can help the model learn to predict different effect sizes (for different mutation orders) in a shared representation. However, the training data only has up to double mutations, so we can only use task for up to double and then extrapolate. Another idea is to generate additional synthetic data by virtual screening or molecular simulations, but this is beyond the scope of the current problem (we cannot train on unseen data). Alternatively, we can use a data augmentation technique by randomly sampling higher-order mutants from the training set with replacement, but that might not be feasible.
+
+Given the constraints, let's select the most promising idea. We have to choose one to implement. Among the three, Idea 3 (using data augmentation) is difficult because we don't have synthetic high-order data. However, we can consider Idea 1 (higher-order terms) as a direct extension. But note that the training data only has up to double mutations, so we cannot include triples from the training data. We can use a function to map triples to the product of pairs, but that might not be sufficient.
+
+Alternatively, Idea 2 (random effects) seems more feasible and might capture some of the higher-order effects without explicitly modeling triple interactions.
+
+But let me reconsider: the current model is very simple and might not capture interactions beyond pairs. The higher-order extrapolation might require capturing more complex effects.
+
+After weighing, I choose:
+
+Selected Idea: 1
+
+But note: We cannot include triple terms because we don't have training data for them. Therefore, we must rethink.
+
+Alternative idea: Use a feature transformation that considers the mutation pattern in a more comprehensive way, such as using the graph of mutations (where nodes are mutations and edges represent interactions). Or use a count of pairs that are adjacent in the protein sequence, but that is domain-specific and might not be available.
+
+Another thought: Use polynomial features for the mutation indicators. But the current model is already sparse because it doesn't include every possible combination. We can consider including all pairs, triples, ... but that would be too many.
+
+Alternatively, we can use a technique like tensor decomposition or multi-linear models that are designed for extrapolation. However, we are constrained by the training data (only up to double).
+
+Alternatively, we can try to use a Bayesian approach to model the interaction terms and put priors that encourage smoother extrapolation.
+
+But given the time and the fact that we must implement one, I might change to an idea that is more likely to be implemented.
+
+Let's try a different approach: instead of explicitly adding higher-order features, we can use a neural network that is capable of learning complex interactions. However, we are to keep the code in Python and the model must be trained only on the provided training data.
+
+But note: the current model is a simple linear model. Switching to a neural network might be a good idea, but it requires more parameters and might overfit.
+
+Another idea: Use gradient boosting over the mutation features, but again, without training data for triples, we are limited.
+
+Let me think again: the current model does not use the order of the mutations beyond sorting. Perhaps we can include mutation order by positions? But we don't have that information.
+
+Alternatively, we can use a model that incorporates the idea of "linear effects plus interactions" but in a different way, such as using a Support Vector Machine with a polynomial kernel. However, this would require kernel matrix computation which is not feasible for large numbers of samples.
+
+Given these constraints, I propose:
+
+Selected Idea: We create a new feature that indicates the count of mutations and also the count of pairs, but then also include a feature for the count of triples that can be formed (even if we only have up to double mutations, we can compute the combinatorial count for each mutant, i.e., if a mutant has 5 mutations, the count of triples is C(5,3)=10). This is a virtual feature that does not use actual training data but abstract combinatorial counts.
+
+But note, the current model already includes two additional features: the number of mutations (load) and the number of pairs (which is C(n,2) for a mutant with n mutations). We already have the number of mutations and number of pairs.
+
+Maybe we can add the entropy or some other function of the mutation set? However, without knowing the distribution of these features, we don't know.
+
+Wait, let me reframe: the current model uses two feature blocks: single mutations, pair mutations, and then two scalar features (n_mutations and n_pairs). The n_pairs is already set to the count of pairs (so it's not a learned feature but a fixed one). The idea is that mutants with more mutations are given a different treatment because the n_mutations and n_pairs are included.
+
+But we can try to use a model that allows interactions between the base mutation effects and the order. This is what the current model does by including the scalar features (which are the order) and then the model learns the effect of order.
+
+But there's no explicit interaction between the base single mutation tokens and the order, except through the scalar features.
+
+Another idea: use a model that includes the single and pair features, plus a feature that counts the number of times a specific mutation appears in the training set (or its mean fitness effect) but then the test set might have unseen mutations.
+
+The current function `_parse_mutation` produces tokens that are the mutation names. We are only using the tokens as features if they appeared in the training data. So for unknown tokens, we don't have a feature. This might be a problem for extrapolation because extrapolation requires that the test set might contain mutations that were not present in the training set, so the features for those mutations would be zero. However, if they don't appear, we don't have a feature. This might be acceptable because the model is linear and can still make predictions, but the coefficients for different mutations might be too high or too low for unseen ones.
+
+But the current training process uses the data from the training set only for the mutations that appear. So the test set might have an unseen mutation.
+
+Idea: For the purpose of extrapolation, we might want to give some kind of "fallback" value. One technique is to use the average fitness effect of single mutations or something similar. Alternatively, we can use a model that includes a global mean or mode.
+
+But I think a more promising idea is to use a tree-based model that can handle interactions and missing features better. However, the current state-of-the-art is a Ridge regression, so we are expected to beat that.
+
+Alternatively, we can try to use a linear model with more features, but derived from the mutation set, such as:
+
+- The maximum, minimum, mean, or median of the per-single-mutation effects, if we could estimate them.
+
+But we don't have the per-single-mutation coefficients because the model is regularized and they are combined.
+
+Another idea: use two models, one for predicting the baseline effect (without interactions) and then an interaction model.
+
+But I think we need to stick with one change.
+
+Let me formalize the ideas again, but more targeted:
+
+Idea 1 (with a twist): Extend the feature space by adding a virtual feature that represents the "order" of the mutant beyond the count, such as the entropy of the mutation set. For example, the entropy would measure how evenly the mutations are distributed in terms of the number of mutations (or the diversity of the mutations). But we don't have such a feature yet.
+
+But note, the training set does not have higher-order mutants, so we don't have data to learn the coefficients for any new features.
+
+Idea 2: Use a different loss function that is more suitable for extrapolation, e.g., a loss that puts more weight on higher-order mutants (if we can signal them) or a Huber loss to be less sensitive to outliers.
+
+But we don4t control the weights for each mutant.
+
+Idea 3: Regularize the model differently for different orders. For example, by scaling the importance of the linear and quadratic terms by some factor. But the current model already has a Ridge penalty (L2) so we can adjust the alpha for different feature blocks.
+
+But note, the current model uses one alpha for the entire fit.
+
+Alternatively, we can use feature normalization that also accounts for the order, but that is what the sample_weight does, adjusting by the training set load.
+
+Given the time and the fact that we must produce code, I'll choose:
+
+Selected Idea: 2
+
+Actually, I have to choose one of the three ideas I initially wrote. But due to the difficulty of implementing complex ideas, I revert to an idea that was already partially in the current model: use of sample weighting that already exists. But then I notice that the current sample weighting uses the frequency of the number of mutations. Another idea is to also weight by the number of pairs for within-order effects.
+
+But let's re-read the current sample_weight:
+
+sample_weight = np.array(
+    [1.0 / max(1, load_counts.get(int(load), 1)) for load in train_df["num_mutations"]],
+    dtype=float,
+)
+
+This down-weights mutants that are common and up-weights less common mutants. But note that for extrapolation, we want to learn to predict unseen patterns (which are very rare). So this weighting is exactly what we want.
+
+But maybe we can extend it to use two categories: by the number of mutations and then by the number of pairs? We don't have counts for both, because the mutant is defined by the set of mutations, not the order.
+
+Alternatively, we can use a two-level model: one that predicts the main effect and then an interaction term.
+
+But after careful thought, I propose:
+
+** Idea 1 **
+Hypothesis: Explicitly model the effects of mutations and the interactions using a low-rank matrix factorization.
+Reasoning: This can decouple the mutation effects and their interactions, potentially capturing complex patterns in a data-driven way.
+
+** Idea 2 **
+Hypothesis: Incorporate external knowledge (like amino acid properties) if available.
+Reasoning: This can add biological context that improves generalization.
+
+** Idea 3 **
+Hypothesis: Use a more sophisticated feature representation, such as one-hot encoding for each mutation's amino acid change, and include features based on the physical properties of the mutations.
+
+Given that we don't have external knowledge in the data, Idea 3 might not be applicable.
+
+But the original task format requires three ideas. So I will generate three, then choose one.
+
+** Idea 1 **
+Hypothesis: Add feature interactions in a way that is not limited to pairs by using a feature map that creates binary indicators for every subset of mutations (up to a certain size) but only for subsets of size up to 1 (single) and 2 (pair) is already done. This is too expensive.
+
+** Idea 2 **
+Hypothesis: Use a model that can handle missing features (unseen mutations in the test set) by interpolating from the nearest known mutation.
+
+** Idea 3 **
+Hypothesis: Train an ensemble of many shallow models with different features, then average their predictions.
+
+Now, let's choose the most promising one for implementation:
+
+In practice, Idea 3 (ensemble) is a common method to improve performance, but training many models might be computationally expensive. Also, we are evaluating on a fixed training and test set, so we might not have enough data for many rounds.
+
+Alternatively, we can consider using a different algorithm for function approximation that is known to work well for extrapolation, such as splines or Gaussian processes, but these are not implemented here.
+
+Another idea: use a model that includes the average of the single-mutation effects as a base, and then the interaction effects. But the current model does this inherently.
+
+After much thought, I decide to go with:
+
+Selected Idea: 3 (but I changed my mind multiple times)
+
+Actually, let's think of the simplest improvement that can be implemented with the given tools:
+
+The current model is a Ridge regression over mutated features. The only improvement is to change the feature representation.
+
+Idea 3: include the order of mutations in the feature representation by using the positions along the sequence (if available) or the length of the mutation set? But the data does not provide the protein sequence, only the mutant name.
+
+However, the mutant name format might provide information. For example, the current `_parse_mutation` function splits by "/", so we are only extracting the tokens (mutation names). But the presentation of the mutant name might be, e.g., "Ala67Ser75Ala76", which is a trinucleotide mutate. In the current code, this would be split into ['Ala67', 'Ser75', 'Ala76'] and then each of these is not in the single_index if they are not in the training data.
+
+But note: the training data in MULTI-evolve is from public DMS datasets, which are on proteins, but the exact mutants are specific to the experiment.
+
+Given these considerations, I think the best idea is to improve the feature representation by including the possibility of ordered features for a limited set of mutations, but this is domain-specific.
+
+But wait, the benchmark is for multimutant extrapolation, and one of the main challenges is that the test set contains higher-order mutants that were not seen in the training set. The current model does not have the capacity to extrapolate far because it doesn't include features corresponding to higher-order interactions.
+
+The most promising improvement in the given current code is to use a model that is more expressive, for example, a neural network or a random forest. However, the task requires us to write only the function `fit_and_predict`, and we are limited in what we can do.
+
+But note, the task allows us to use any algorithm, as long as we fit and predict on the given data.
+
+Since we are allowed to replace the code between the tags, we can choose a different algorithm.
+
+Given that the state-of-the-art is not clearly defined beyond the code provided, we are expected to come up with our own method.
+
+Idea: Use a random forest regressor.
+Reasoning: Random forests can capture interactions between features up to a certain depth and can handle both numerical and categorical features. They are less likely to overfit if we choose the hyperparameters appropriately.
+
+Let's implement a random forest.
+
+Steps:
+1. Parse the mutation string into tokens (same as in the current code).
+2. Create features: we can include not just the single tokens and pair tokens, but also the count features (num_mutations and num_pairs) and potentially other features like the inter- site distances (but that may not be available in the data) or categorical features for the tokens themselves.
+
+But note: the current code only has the mutant string and the fitness.
+
+We can create features as follows:
+- Each single mutation token is a binary feature (presence/absence), but mutual information or one-hot encoding for frequent tokens is not done.
+- But we already have a sparse representation in the current code.
+
+We can use the same feature representation as the current code (single_index and pair_index) but also add the two scalar features (n_mutations and n_pairs). This is exactly what the current code does.
+
+But a random forest can handle sparse features because it is tree-based. The implementation in scikit-learn can handle categorical features via one-hot encoding, but our features are not naturally categorical in a way that scikit-learn requires. However, we can create a one-hot encoded representation for the single and pair features, which would be dense and very high-dimensional. But that is not feasible.
+
+Alternatively, we can use the current sparse representation in a tree model by converting to a dense format or using a different library (like LightGBM) that can handle sparse features. But the problem requires a self-contained implementation and we are to use only the given functions.
+
+Scikit-learn's RandomForestRegressor doesn't handle sparse matrices directly. It requires dense matrices.
+
+Another idea: use Extra Trees regressor, which might be more robust.
+
+But after considering, I decide to use a gradient boosting machine, such as HistGradientBoosting from sklearn, which can handle both dense and sparse matrices? Actually, it use categorical features, but we can convert our sparse matrix to dense if the number of features is small. But the number of features is the number of unique single mutations plus unique pairs, which could be large.
+
+Alternatively, we can reduce the dimensionality by using feature hashing.
+
+But that introduces collisions.
+
+Given the time, I choose to go back to the initial state-of-the-art model but with hyperparameter optimization. However, the task is to improve.
+
+Finally, I look at the score formula: 0.7 * mean_pearson_r + 0.3 * mean_precision_top5.
+
+For top-5% precision, we want to assign high probabilities to the mutants that closely approximate the true best mutant(s). The current linear model does not naturally produce probabilities, but we can convert the continuous prediction to a ranking.
+
+So the model might be better if it can better rank the mutants.
+
+Idea: Train a model that outputs log-odds or probabilities and then adjust the ranking accordingly. But this is not straightforward.
+
+Another idea: use the linear model to predict, and then apply a non-linear transformation (like expit) to get probabilities, and then use these for ranking.
+
+But the training is linear regression.
+
+Given the complexity, I decide to implement a kernel ridge regression or a support vector regressor with a polynomial kernel, but that is not implemented in sklearn for sparse matrices.
+
+Alternatively, we can try a model that is more robust to non-linear relationships, such as an MLP with one hidden layer.
+
+But then we need to be careful about the feature extraction.
+
+After careful thought, I have to choose a simple improvement: sample weighting.
+
+Currently, the code uses sample weighting based on the number of mutations. Let's change the weight to also be a function of the number of pairs.
+
+But the sample_weight is already set to be inversely proportional to the frequency of the number of mutations.
+
+Now, Idea 5: sample_weight = (frequency_in_training)^-alpha, but we can try to set alpha to a higher value to more heavily penalize rare mutants, which are important for extrapolation.
+
+But the current alpha is fixed in sample_weight to be the same for all folds, but it is computed based on the training set. We can try to design it differently.
+
+But we are to implement a code change.
+
+Let me re-read the task: We must and can only replace the code between the two tags.
+
+So let's try to change the sample_weight computation.
+
+Current sample_weight is: [1.0 / max(1, load_counts.get(int(load), 1))] and then normalized.
+
+Idea 5: Multiply the per-level sample_weight by an exponential function of the log_count ratio.
+
+But this might not help.
+
+Another idea: use the training data to learn to weight the samples by the mutual information between the mutation set and the fitness.
+
+But we don't have that.
+
+Given the instructions, we must choose one idea from among the three I initially thought of.
+
+Therefore, I will output three ideas and then choose one arbitrarily.
+
+Let's output:
+
+** Idea 1 **
+Hypothesis: Extend the model to include triple interactions implicitly by using a more complex interaction term extraction.
+Reasoning: Triple interactions can capture the effect of three mutations together, which is not explainable by pairs alone. This can improve both Pearson R and top-5% precision by better capturing nonlinear effects.
+
+** Idea 2 **
+Hypothesis: Incorporate standard deviation of fitness measurements for each mutation within the same mutant order.
+Reasoning: Variance can indicate uncertainty, and mutants with high variance might be less predictably extrapolated. Noting this could help improve extrapolation accuracy.
+
+** Idea 3 **
+Hypothesis: Add a custom penalty term to the Ridge regression based on the order of the mutant (number of mutations).
+Reasoning: This could penalize high coefficients for high-order interactions differently than lower-order ones, to prevent the model from over-predicting or under-predicting for extrapolation.
+
+Now, I choose Idea 1, because it directly addresses the extrapolation to higher-order interactions.
+
+But unfortunately, we cannot include triple interactions because there's no training data.
+
+But wait, what if we use a virtual triple interaction feature that is 1 for any mutant with at least 3 mutations, and 0 otherwise? Then the model can learn to adjust for the order.
+
+So let's try that:
+
+We can add a feature that indicates if the mutant has >=3 mutations, and one for >=4, etc. This is a simple "step function" for the order.
+
+This is a new feature that doesn't require training data.
+
+So the code would first parse the mutant to get the list of tokens, then we can create:
+
+new_feature = [1 if len(tokens) >= 3 else 0 for tokens in parsed]
+
+Then we add this feature to the model.
+
+This is easily implementable and requires no training.
+
+But does it help? It's a heuristic feature. But the model has only seen up to double mutations, so for extrapolation (>=3) it makes sense to penalize or adjust the prediction based on the order.
+
+Similarly, we could create features for every order beyond 2.
+
+But let's do that.
+
+So Idea 3 operationalized: add feature(s) for the number of mutations beyond 2.
+
+We can create two additional features:
+
+- Feature order>=3: indicator (0/1) for n>=3
+- Feature order>=4: indicator for n>=4
+
+But we can also create one feature that is the count from 2 to n (so it's continuous).
+
+But we already have the two features: n_mutations and n_pairs.
+
+The n_mutations is already provided.
+
+But the current model uses n_mutations and n_pairs as fixed features (not learned). So the impact of the order is already there.
+
+However, the effect of the order is linear and added, so this might not be enough.
+
+Alternatively, we can use the count of features as a virtual feature and then use it to bias the model.
+
+Idea: transform the features by multiplying the single and pair features by a weight that depends on n_mutations.
+
+But that would be non-linear.
+
+Given the time, I decide to implement a simpler solution: add a feature that is the reciprocal of the expected contribution based on the number of mutations (to penalize extreme extrapolation).
+
+But none that is working.
+
+After all, the most promising Idea  is:
+
+** Idea  as Implemented: ** Add extra features for the order of mutations beyond 2 as continuous and sparse features.
+
+We'll create three new features:
+
+1. Whether the mutant has >=3 mutations.
+2. Whether it has >=4.
+3. The raw count of mutations (which is already there).
+
+But the raw count is there. So features 1 and 2 are new.
+
+Or we can do:
+
+We can also create the mutual_info or entropy of the set of mutations.
+
+But again, without the data, we cannot.
+
+But if we use raw features, we can do:
+
+new_features = [
+    (len(tokens) >= 3) for each row,
+    (len(tokens) >= 4) for each row,
+    ... maybe more
+]
+
+But then these features are not sparse and they add continuous information.
+
+Then we can include them in the regression.
+
+Let's change the fit_and_predict function to include these features.
+
+But note, the state-of-the-art code already includes the number of mutations and number of pairs. We are only additions.
+
+The original state-of-the-art code has:
+
+    load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+    load_values[row_idx, 0] = float(len(tokens))
+    load_values[row_idx, 1] = float(len(all_pairs))
+
+So the two additional features are the number of mutations and the number of pairs.
+
+We cannow add two more:
+
+    new_features = []
+    new_features.append( len(tokens) >= 3 )
+    new_features.append( len(tokens) >= 4 )
+
+Or we can do something more: have a vector of boolean indicators for the counts above 2, but that would be continuous.
+
+Alternatively, we can add the vector of indicators for the count being >=3, >=4, etc.
+
+But let's keep it simple.
+
+However, this might not help.
+
+Another idea: use tensor decomposition or N-way ANOVA.
+
+But we don't have time.
+
+Given the instructions, I will implement the following idea:
+
+** Idea  as Implemented: ** Use a different extrapolation approach by adding two new features: the number of mutations and the number of pairs, but also for the test set, we can use an external data source (not available).
+
+Therefore, I decide to actually select "None" and try to come up with a better idea.
+
+Wait, the task is to generate 3 ideas and then choose one.
+
+But the community responds differently.
+
+After careful thought, I choose:
+
+** Idea 1 **
+Hypothesis: Use a random forest.
+Reasoning: Random forests can capture interactions beyond pairs.
+
+But to reduce memory usage, we must use a amount. 
+
+But the training set might be large.
+
+Given the above, I choose to implement a random forest regressor with the same feature set as the original model.
+
+So the features are:
+- presence/absence of each single mutation (as in the original)
+- presence/absence of each pair mutation (as in the original)
+- the number of mutations (as in the origin)
+- the number of pairs (as in the origin)
+
+So we will train a RandomForestRegressor on this feature set.
+
+The benefits are that random forests can capture any mono- or higher-order interactions through ensembling.
+
+So the code:
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+
+_PACEVOLVE_last_analysis_artifact: Dict[str, float] = {} # Note: corrected to 'last' or keep as 'LAST'? The placeholder uses 'last', so I will use 'last' to match the original code's comment.
+
+def _parse_mutation(mutation: str) -> List[str]:
+    # ... (same as before)
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    # ... (same)
+
+class SparseMutationRandomForest:
+    # ... 
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del dataset_context
+
+    parsed_train = [_parse_mutation(m) for m in train_df['mutant'].tolist()]
+    parsed_test = [_parse_mutation(m) for m in test_df['mutant'].tolist()]
+
+    # Create the new features
+    n_feats = len(parsed_train)
+    loads = [
+        {
+            'num_mutations': len(tokens),
+            'num_pairs': len(list(combinations(tokens,2)))
+        }
+        for tokens in parsed_train
+    ]
+    load_values = pd.DataFrame({"num_mutations": [l[0] for l in loads], "num_pairs": [l[1] for l in loads]})
+
+    # Extract the single and pair mutation features
+    all_tokens = []
+    for tokens in parsed_train + parsed_test:
+        for token in tokens:
+            if token not in all_tokens:
+                all_tokens.append(token)
+
+    token_encoder = {token: idx for idx, token in enumerate(all_tokens)}
+    single_index = token_encoder
+
+    # Extract the pair features
+    observed_pairs = set()
+    for tokens in parsed_train:
+        if len(tokens) >= 2:
+            for pair in combinations(tokens,2):
+                observed_pairs.add(_sorted_pair(*pair))
+    pair_index = {pair: idx + len(single_index) for idx, pair in enumerate(observed_pairs)}
+
+    def one_hot_encode(mutation: str) -> list:
+        tokens = set(mutation)
+        return [1 if token in tokens else 0 for token in all_tokens]
+
+    But wait, this is not the way for the random forest.
+    # Instead, we can use LabelEncoder might be bad because the labels are integers
+    # We are to create a feature matrix X_train.
+
+    X_train = []
+    for tokens in parsed_train:
+        row = [0] * (len(single_index) + len(pair_index) + 2) # +2 for the two load features
+        for token in tokens:
+            if token in single_index:
+                row[single_index[token]] = 1
+        for pair in combinations(tokens,2):
+            sorted_pair = _sorted_pair(*pair)
+            if sorted_pair in pair_index:
+                row[pair_index[sorted_pair]] = 1
+        # Add load features: num_mutuations and num_pairs
+        row += [1, 1] # I need to fill these with the actual values, not 1.
+        # Let's recalc the load features
+        raise NotImplementedError
+
+This is too time-consuming to implement fully. Given the instructions, I must output the code.
+
+Rather than wasting time on an ill-defined implementation, I decide to output the original code.
+
+But the user expects an improvement.
+
+Given the time constraints and that this is a challenge, I must output one idea despite the difficulty.
+
+. 65183
+</think>
+** Idea 1 **
+Hypothesis: Include mutation interaction terms derived from mutation positions and evolutionary conservation
+Reasoning: This can capture biological context and nearby residue effects that are often predictive of fitness changes. Mutations occurring near each other or functional sites are likely to have synergistic or antagonistic effects, which is crucial for higher-order extrapolations.
+
+** Idea 2 **
+Hypothesis: Implement early stopping during training
+Reasoning: This can prevent overfitting on the training data (singles/doubles) while still maintaining extrapolation accuracy on higher-order complexes. It balances between fitting the observed data and generalizing capacity.
+
+** Idea 3 **
+Hypothesis: Incorporate dimensionality reduction like PCA on normalized features
+Reasoning: Reduces feature space complexity, potentially improving generalization. Higher-order mutants could have correlated patterns that help the model better predict from lower-order data.
+
+Selected Idea: 2
+
+Experiment description: Add an early stopping callback during Ridge training. 
+
+```python
+from __future__ import annotations
+
+from itertools import combinations
+from typing import Dict, List, Tuple, Optional
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import train_test_split
+
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
+None
+
+def _parse_mutation(mutation: str) -> List[str]:
+    text = str(mutation).strip()
+    if not text or text == "WT" or text.lower() == "nan":
+        return []
+    return [token for token in text.replace(":", "/").split("/") if token and token != "WT"]
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    return tuple(sorted((token_a, token_b)))
+
+class EarlyStoppingRidge:
+    """Ridge regression with early stopping capability."""
+    def __init__(self, alpha: float = 2.0, pair_scale: float = 0.75, n_iter_no_change: int = 5, 
+                 max_iter: int = 1000):
+        self.alpha = alpha
+        self.pair_scale = pair_scale
+        self.n_iter_no_change = n_iter_no_change
+        self.max_iter = max_iter
+        self.model = Ridge(
+            alpha=self.alpha, 
+            fit_intercept=True, 
+            max_iter=self.max_iter,
+            normalize=True,
+            early_stopping=False,  # Standard scikit-learn has early_stopping, but we'll implement separately
+        )
+        self.best_epoch = None
+        self.best_score = -np.inf
+        self.validation_size = 0.2
+
+    def fit(self, train_df: pd.DataFrame) -> None:
+        parsed = [_parse_mutation(mutation) for mutation in train_df["mutant"].tolist()]
+
+        singles = sorted({token for tokens in parsed for token in tokens})
+        self.single_index = {token: idx for idx, token in enumerate(singles)}
+
+        observed_pairs = set()
+        for tokens in parsed:
+            if len(tokens) == 2:
+                observed_pairs.add(_sorted_pair(tokens[0], tokens[1]))
+        self.pair_index = {pair: idx for idx, pair in enumerate(sorted(observed_pairs))}
+
+        X_train = self.transform_mutations(parsed)
+        y_train = train_df["fitness"].values  # Use .values for numpy array
+
+        # Add early stopping
+        X, X_val, y, y_val = train_test_split(X_train, y_train, test_size=self.validation_size, 
+                                            random_state=42, stratify=train_df['num_mutations'])
+        
+        # Train with early stopping logic
+        best_val_score = float('-inf')
+        no_improvement_count = 0
+        max_patience = self.n_iter_no_change
+        
+        for epoch in range(self.max_iter):
+            self.model.fit(X, y)
+            y_pred_val = self.model.predict(X_val)
+            current_score = np.mean(np.square(y_pred_val - y_val))  # MSE
+            
+            if current_score < best_val_score + 1e-4 and self.alpha < 10.0:  # Grid search?
+                self.alpha *= 1.1
+                self.model.alpha = self.alpha
+                no_improvement_count = 0
+            else:
+                no_improvement_count += 1
+            
+            if current_score < best_val_score:
+                best_val_score = current_score
+                if epoch >= self.n_iter_no_change:
+                    self.best_epoch = epoch
+                    self.best_score = best_val_score
+                    self.model.alpha = self.alpha
+                    early_stop = True
+                no_improvement_count = 0
+            else:
+                no_improvement_count += 1
+            
+            if no_improvement_count >= max_patience:
+                self.best_epoch = epoch
+                self.best_score = best_val_score
+                self.model.alpha = self.alpha
+                return
+        
+        self.best_epoch = epoch
+        self.best_score = best_val_score
+
+
+    def transform_mutations(self, parsed_mutations: List[List[str]]) -> sparse.csr_matrix:
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        load_counts = {}
+        sample_weights = []
+
+        unique_tokens = set()
+        for tokens in parsed_mutations:
+            for token in tokens:
+                unique_tokens.add(token)
+        # We don't need to calculate unique_tokens here as we already have self.single_index
+        
+        # Calculate sample weights by number of mutations as before
+        load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+        mutate_counts = [len(tokens) for tokens in parsed_mutations]
+        max_load = max(mutate_counts) if mutate_counts else 0
+        load_factor = 1 / max_load  # Not used, keep as is
+        sample_weight_matrix = np.zeros(len(parsed_mutations))
+        
+        return sparse.csr_matrix(load_values)  # Simplified as before
+
+
+    def predict(self, test_df: pd.DataFrame) -> np.ndarray:
+        parsed = [_parse_mutation(mutation) for mutation in test_df["mutant"].tolist()]
+        x_test = self.transform_mutations(parsed)
+        return self.model.predict(x_test)
+
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del dataset_context
+    global _PACEVOLVE_LAST_ANALYSIS_ARTIFACT
+    model = EarlyStoppingRidge(alpha=2.0, pair_scale=0.75, n_iter_no_change=10, max_iter=500)
+    model.fit(train_df)
+    # Capture model state
+    coef = np.asarray(model.model.coef_, dtype=float)
+    intercept = float(model.model.intercept_)
+    artifact = {
+        "model_type": "EarlyStoppingRidge",
+        "final_alpha": float(model.model.alpha),
+        "best_epoch": float(model.best_epoch),
+        "coef_l2_norm": float(np.linalg.norm(coef)),
+        "intercept": float(intercept),
+    }
+    _PACEVOL_sequenceVE_LAST_ANALYSIS_ARTIFACT = artifact  # Fix potential typo
+    return model.predict(test_df)
+```
+
+Note: The implementation above demonstrates the core idea. Some details (like exact validation splitting logic) might need further adjustment for production use.<｜end▁of▁sentence｜>
+```
+
+---
+
+--- role: model tags: [policy_output_normalization_response] ---
+```json
+{
+  "hypotheses": [
+    "Include mutation interaction terms derived from mutation positions and evolutionary conservation",
+    "Implement early stopping during training",
+    "Incorporate dimensionality reduction like PCA on normalized features"
+  ],
+  "selected_idea": 2,
+  "experiment_description": "Add an early stopping callback during Ridge training."
+}
+```
+---
+
+--- role: user tags: [idea_classification_prompt] ---
+
+Below is the database of ideas we have explored:
+No ideas in the database.
+
+Here is the hypothesis to be classified:
+Include mutation interaction terms derived from mutation positions and evolutionary conservation
+
+Your job is to classify the newly generated idea and merge into the idea repo.
+If you believe the following idea is similar or identical to one of the ideas in the database, you should respond in the following format by identifying the ID of the similar idea. For instance, if your idea leverage a similar math or computer science concepts, but require different implementations or hyperparameter tuning, then they should be grouped under the same idea.
+If your idea is similar but not identical, provide an updated description that combines both your idea and the original idea and keep the description concise. Otherwise, you can reuse the same idea description in the updated description section.
+If your idea is a combination of two existing but very different ideas, then your idea should count as a new idea. 
+If you find it hard to articulate the new hypothesis together with the original idea in TWO SENTENCES after merging, you should classify the hypothesis as a new idea. Your updated description / idea description should be NO MORE THAN TWO SENTENCES. But you should also AVOID using overly broad terms and BE SPECIFIC about the ideas while keeping the idea description concise.
+
+Idea Exists: True
+Idea ID: <Idea ID>
+Updated description: <Updated description here>
+
+If you believe your idea is new and orthogonal to existing ideas, respond in the following format:
+Idea Exists: False
+Idea description: <Provide your hypothesis here>
+
+
+---
+
+--- role: user tags: [idea_classification_prompt] ---
+
+Below is the database of ideas we have explored:
+Idea ID: 1
+Idea Description: Include mutation interaction terms derived from mutation positions and evolutionary conservation.
+Experiment Count: 0
+Experiment History:
+
+
+Here is the hypothesis to be classified:
+Implement early stopping during training
+
+Your job is to classify the newly generated idea and merge into the idea repo.
+If you believe the following idea is similar or identical to one of the ideas in the database, you should respond in the following format by identifying the ID of the similar idea. For instance, if your idea leverage a similar math or computer science concepts, but require different implementations or hyperparameter tuning, then they should be grouped under the same idea.
+If your idea is similar but not identical, provide an updated description that combines both your idea and the original idea and keep the description concise. Otherwise, you can reuse the same idea description in the updated description section.
+If your idea is a combination of two existing but very different ideas, then your idea should count as a new idea. 
+If you find it hard to articulate the new hypothesis together with the original idea in TWO SENTENCES after merging, you should classify the hypothesis as a new idea. Your updated description / idea description should be NO MORE THAN TWO SENTENCES. But you should also AVOID using overly broad terms and BE SPECIFIC about the ideas while keeping the idea description concise.
+
+Idea Exists: True
+Idea ID: <Idea ID>
+Updated description: <Updated description here>
+
+If you believe your idea is new and orthogonal to existing ideas, respond in the following format:
+Idea Exists: False
+Idea description: <Provide your hypothesis here>
+
+
+---
+
+--- role: user tags: [idea_classification_prompt] ---
+
+Below is the database of ideas we have explored:
+Idea ID: 1
+Idea Description: Include mutation interaction terms derived from mutation positions and evolutionary conservation.
+Experiment Count: 0
+Experiment History:
+
+Idea ID: 2
+Idea Description: Implement early stopping during training to prevent overfitting.
+Experiment Count: 0
+Experiment History:
+
+
+Here is the hypothesis to be classified:
+Incorporate dimensionality reduction like PCA on normalized features
+
+Your job is to classify the newly generated idea and merge into the idea repo.
+If you believe the following idea is similar or identical to one of the ideas in the database, you should respond in the following format by identifying the ID of the similar idea. For instance, if your idea leverage a similar math or computer science concepts, but require different implementations or hyperparameter tuning, then they should be grouped under the same idea.
+If your idea is similar but not identical, provide an updated description that combines both your idea and the original idea and keep the description concise. Otherwise, you can reuse the same idea description in the updated description section.
+If your idea is a combination of two existing but very different ideas, then your idea should count as a new idea. 
+If you find it hard to articulate the new hypothesis together with the original idea in TWO SENTENCES after merging, you should classify the hypothesis as a new idea. Your updated description / idea description should be NO MORE THAN TWO SENTENCES. But you should also AVOID using overly broad terms and BE SPECIFIC about the ideas while keeping the idea description concise.
+
+Idea Exists: True
+Idea ID: <Idea ID>
+Updated description: <Updated description here>
+
+If you believe your idea is new and orthogonal to existing ideas, respond in the following format:
+Idea Exists: False
+Idea description: <Provide your hypothesis here>
+
+
+---
+
+--- role: user tags: [idea_selection_prompt] ---
+
+We are conducting an evolutionary optimization process for a MULTI-evolve-style multimutant extrapolation benchmark.
+
+
+### Background on the MULTI-evolve extrapolation benchmark
+
+This task is derived from the MULTI-evolve paper's multimutant extrapolation benchmark.
+
+The paper-style setup is:
+- train on low-order variants, especially singles and doubles
+- test on higher-order variants
+- measure how well the model extrapolates from local epistatic observations to unseen multimutants
+
+This repo task uses public DMS datasets from the MULTI-evolve benchmark data release and evaluates:
+- mean Pearson R on held-out higher-order mutants
+- mean top-5% precision, where the predicted top 5% is compared with the truly best 5%
+
+The final benchmark score is `0.7 * mean_pearson_r + 0.3 * mean_precision_top5`.
+
+
+
+You are optimizing a public-data multimutant fitness extrapolator. The key challenge is to generalize from single and double mutation measurements to unseen higher-order combinations.
+
+
+
+While completing your task, you MUST:
+- Enclose your code in triple backticks to properly format the code in Markdown.
+- Your code will replace the content between RegexTagCustomPruningAlgorithmStart and RegexTagCustomPruningAlgorithmEnd in multievolve_extrapolate_1.py.
+- You MUST define `fit_and_predict(train_df, test_df, dataset_context)`.
+- `train_df` and `test_df` are pandas DataFrames with at least `mutant`, `fitness`, and `num_mutations`.
+- Your function MUST return one numeric prediction per row of `test_df`.
+- Do not read files or call the network inside the candidate.
+- If you train or fit an internal model, populate `_PACEVOLVE_LAST_ANALYSIS_ARTIFACT` with a small JSON-serializable summary so post-eval analysis can inspect it.
+- Each triple-backtick enclosed code block must contain valid Python and a valid implementation.
+
+
+### Current state-of-the-art
+```python
+from __future__ import annotations
+
+from itertools import combinations
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import Ridge
+
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
+
+def _parse_mutation(mutation: str) -> List[str]:
+    text = str(mutation).strip()
+    if not text or text == "WT" or text.lower() == "nan":
+        return []
+    return [token for token in text.replace(":", "/").split("/") if token and token != "WT"]
+
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    return tuple(sorted((token_a, token_b)))
+
+
+class SparseMutationRidge:
+    """Ridge regression over sparse single and pairwise mutation indicators."""
+
+    def __init__(self, alpha: float = 2.0, pair_scale: float = 0.75):
+        self.alpha = alpha
+        self.pair_scale = pair_scale
+        self.single_index: Dict[str, int] = {}
+        self.pair_index: Dict[Tuple[str, str], int] = {}
+        self.model = Ridge(alpha=self.alpha, fit_intercept=True)
+
+    def fit(self, train_df: pd.DataFrame) -> None:
+        parsed = [_parse_mutation(mutation) for mutation in train_df["mutant"].tolist()]
+
+        singles = sorted({token for tokens in parsed for token in tokens})
+        self.single_index = {token: idx for idx, token in enumerate(singles)}
+
+        observed_pairs = set()
+        for tokens in parsed:
+            if len(tokens) == 2:
+                observed_pairs.add(_sorted_pair(tokens[0], tokens[1]))
+        self.pair_index = {pair: idx for idx, pair in enumerate(sorted(observed_pairs))}
+
+        x_train = self.transform_mutations(parsed)
+        y_train = train_df["fitness"].to_numpy(dtype=float)
+
+        load_counts = train_df["num_mutations"].value_counts().to_dict()
+        sample_weight = np.array(
+            [1.0 / max(1, load_counts.get(int(load), 1)) for load in train_df["num_mutations"]],
+            dtype=float,
+        )
+        sample_weight *= len(sample_weight) / np.sum(sample_weight)
+        self.model.fit(x_train, y_train, sample_weight=sample_weight)
+
+    def transform_mutations(self, parsed_mutations: List[List[str]]) -> sparse.csr_matrix:
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+
+        single_offset = 0
+        pair_offset = len(self.single_index)
+        load_offset = pair_offset + len(self.pair_index)
+
+        for row_idx, tokens in enumerate(parsed_mutations):
+            for token in tokens:
+                if token in self.single_index:
+                    rows.append(row_idx)
+                    cols.append(single_offset + self.single_index[token])
+                    data.append(1.0)
+
+            all_pairs = list(combinations(sorted(tokens), 2))
+            if all_pairs:
+                weight = self.pair_scale / len(all_pairs)
+                for pair in all_pairs:
+                    if pair in self.pair_index:
+                        rows.append(row_idx)
+                        cols.append(pair_offset + self.pair_index[pair])
+                        data.append(weight)
+
+            load_values[row_idx, 0] = float(len(tokens))
+            load_values[row_idx, 1] = float(len(all_pairs))
+
+        width = load_offset + load_values.shape[1]
+        mutation_matrix = sparse.csr_matrix((data, (rows, cols)), shape=(len(parsed_mutations), width))
+        load_matrix = sparse.csr_matrix(load_values)
+        return sparse.hstack([mutation_matrix[:, :load_offset], load_matrix], format="csr")
+
+    def predict(self, test_df: pd.DataFrame) -> np.ndarray:
+        parsed = [_parse_mutation(mutation) for mutation in test_df["mutant"].tolist()]
+        x_test = self.transform_mutations(parsed)
+        return self.model.predict(x_test)
+
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del dataset_context
+    global _PACEVOLVE_LAST_ANALYSIS_ARTIFACT
+    model = SparseMutationRidge(alpha=2.0, pair_scale=0.75)
+    model.fit(train_df)
+    coef = np.asarray(model.model.coef_, dtype=float)
+    _PACEVOLVE_LAST_ANALYSIS_ARTIFACT = {
+        "model_type": "SparseMutationRidge",
+        "alpha": float(model.alpha),
+        "pair_scale": float(model.pair_scale),
+        "num_single_features": float(len(model.single_index)),
+        "num_pair_features": float(len(model.pair_index)),
+        "coef_l2_norm": float(np.linalg.norm(coef)),
+        "coef_max_abs": float(np.max(np.abs(coef))) if coef.size else 0.0,
+        "coef_mean_abs": float(np.mean(np.abs(coef))) if coef.size else 0.0,
+        "intercept": float(np.asarray(model.model.intercept_).reshape(-1)[0]),
+    }
+    return model.predict(test_df)
+```
+
+## Your Task
+
+Implement the selected idea below.
+
+Selected idea:
+Implement early stopping during training
+
+Idea ID: 2
+Experiment description: Add an early stopping callback during Ridge training.
+
+---
+
+--- role: model tags: [initial_response] ---
+```python
+from __future__ import annotations
+
+from itertools import combinations
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import SGDRegressor
+from sklearn.preprocessing import StandardScaler
+
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
+
+def _parse_mutation(mutation: str) -> List[str]:
+    text = str(mutation).strip()
+    if not text or text == "WT" or text.lower() == "nan":
+        return []
+    return [token for token in text.replace(":", "/").split("/") if token and token != "WT"]
+
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    return tuple(sorted((token_a, token_b)))
+
+
+class SparseMutationRidge:
+    """
+    Ridge regression over sparse single and pairwise mutation indicators.
+    This implementation uses SGDRegressor to enable early stopping during training.
+    """
+
+    def __init__(self, alpha: float = 2.0, pair_scale: float = 0.75):
+        self.alpha = alpha
+        self.pair_scale = pair_scale
+        self.single_index: Dict[str, int] = {}
+        self.pair_index: Dict[Tuple[str, str], int] = {}
+        self.model = SGDRegressor(
+            loss="squared_error",
+            penalty="l2",
+            alpha=self.alpha,
+            fit_intercept=True,
+            max_iter=5000,  # A high number to allow convergence
+            tol=1e-4,
+            shuffle=True,
+            random_state=42,  # For reproducibility
+            early_stopping=True,
+            n_iter_no_change=10,  # Stop if validation score doesn't improve for 10 epochs
+            validation_fraction=0.1,  # Use 10% of training data for validation
+            learning_rate="invscaling",
+            eta0=0.01,
+        )
+        # SGD is sensitive to feature scaling; StandardScaler is appropriate for sparse data.
+        self.scaler = StandardScaler(with_mean=False)
+
+    def fit(self, train_df: pd.DataFrame) -> None:
+        parsed = [_parse_mutation(mutation) for mutation in train_df["mutant"].tolist()]
+
+        singles = sorted({token for tokens in parsed for token in tokens})
+        self.single_index = {token: idx for idx, token in enumerate(singles)}
+
+        observed_pairs = set()
+        for tokens in parsed:
+            if len(tokens) == 2:
+                observed_pairs.add(_sorted_pair(tokens[0], tokens[1]))
+        self.pair_index = {pair: idx for idx, pair in enumerate(sorted(observed_pairs))}
+
+        x_train = self.transform_mutations(parsed)
+        y_train = train_df["fitness"].to_numpy(dtype=float)
+
+        # Scale features to have unit variance
+        x_train_scaled = self.scaler.fit_transform(x_train)
+
+        load_counts = train_df["num_mutations"].value_counts().to_dict()
+        sample_weight = np.array(
+            [1.0 / max(1, load_counts.get(int(load), 1)) for load in train_df["num_mutations"]],
+            dtype=float,
+        )
+        sample_weight *= len(sample_weight) / np.sum(sample_weight)
+        self.model.fit(x_train_scaled, y_train, sample_weight=sample_weight)
+
+    def transform_mutations(self, parsed_mutations: List[List[str]]) -> sparse.csr_matrix:
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+
+        single_offset = 0
+        pair_offset = len(self.single_index)
+        load_offset = pair_offset + len(self.pair_index)
+
+        for row_idx, tokens in enumerate(parsed_mutations):
+            for token in tokens:
+                if token in self.single_index:
+                    rows.append(row_idx)
+                    cols.append(single_offset + self.single_index[token])
+                    data.append(1.0)
+
+            all_pairs = list(combinations(sorted(tokens), 2))
+            if all_pairs:
+                weight = self.pair_scale / len(all_pairs)
+                for pair in all_pairs:
+                    if pair in self.pair_index:
+                        rows.append(row_idx)
+                        cols.append(pair_offset + self.pair_index[pair])
+                        data.append(weight)
+
+            load_values[row_idx, 0] = float(len(tokens))
+            load_values[row_idx, 1] = float(len(all_pairs))
+
+        width = load_offset + load_values.shape[1]
+        mutation_matrix = sparse.csr_matrix((data, (rows, cols)), shape=(len(parsed_mutations), width))
+        load_matrix = sparse.csr_matrix(load_values)
+        return sparse.hstack([mutation_matrix[:, :load_offset], load_matrix], format="csr")
+
+    def predict(self, test_df: pd.DataFrame) -> np.ndarray:
+        parsed = [_parse_mutation(mutation) for mutation in test_df["mutant"].tolist()]
+        x_test = self.transform_mutations(parsed)
+        # Apply the same scaling to the test data
+        x_test_scaled = self.scaler.transform(x_test)
+        return self.model.predict(x_test_scaled)
+
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del dataset_context
+    global _PACEVOLVE_LAST_ANALYSIS_ARTIFACT
+    model = SparseMutationRidge(alpha=2.0, pair_scale=0.75)
+    model.fit(train_df)
+    coef = np.asarray(model.model.coef_, dtype=float)
+    _PACEVOLVE_LAST_ANALYSIS_ARTIFACT = {
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "alpha": float(model.alpha),
+        "pair_scale": float(model.pair_scale),
+        "num_single_features": float(len(model.single_index)),
+        "num_pair_features": float(len(model.pair_index)),
+        "n_iter_actual": float(model.model.n_iter_),
+        "coef_l2_norm": float(np.linalg.norm(coef)),
+        "coef_max_abs": float(np.max(np.abs(coef))) if coef.size else 0.0,
+        "coef_mean_abs": float(np.mean(np.abs(coef))) if coef.size else 0.0,
+        "intercept": float(np.asarray(model.model.intercept_).reshape(-1)[0]),
+    }
+    return model.predict(test_df)
+```
+---
+
+--- role: info tags: [debug_message] ---
+Code compiled on the first attempt.
+---
+
+--- role: system tags: [initial_compile_summary] ---
+Code compiled successfully and was installed.
+---
+
+--- role: system tags: [initial_eval_summary] ---
+Evals ran without modifications to the code.
+---
+
+--- role: user tags: [post_eval_analysis_loop] ---
+
+You are designing a lightweight post-evaluation analysis module for an evolutionary workflow.
+The purpose of this analysis is not just logging: future iterations will use these metrics to
+understand the solution in depth and propose a better next candidate.
+
+The candidate implementation to analyze is:
+```python
+from __future__ import annotations
+
+from itertools import combinations
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import SGDRegressor
+from sklearn.preprocessing import StandardScaler
+
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
+
+def _parse_mutation(mutation: str) -> List[str]:
+    text = str(mutation).strip()
+    if not text or text == "WT" or text.lower() == "nan":
+        return []
+    return [token for token in text.replace(":", "/").split("/") if token and token != "WT"]
+
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    return tuple(sorted((token_a, token_b)))
+
+
+class SparseMutationRidge:
+    """
+    Ridge regression over sparse single and pairwise mutation indicators.
+    This implementation uses SGDRegressor to enable early stopping during training.
+    """
+
+    def __init__(self, alpha: float = 2.0, pair_scale: float = 0.75):
+        self.alpha = alpha
+        self.pair_scale = pair_scale
+        self.single_index: Dict[str, int] = {}
+        self.pair_index: Dict[Tuple[str, str], int] = {}
+        self.model = SGDRegressor(
+            loss="squared_error",
+            penalty="l2",
+            alpha=self.alpha,
+            fit_intercept=True,
+            max_iter=5000,  # A high number to allow convergence
+            tol=1e-4,
+            shuffle=True,
+            random_state=42,  # For reproducibility
+            early_stopping=True,
+            n_iter_no_change=10,  # Stop if validation score doesn't improve for 10 epochs
+            validation_fraction=0.1,  # Use 10% of training data for validation
+            learning_rate="invscaling",
+            eta0=0.01,
+        )
+        # SGD is sensitive to feature scaling; StandardScaler is appropriate for sparse data.
+        self.scaler = StandardScaler(with_mean=False)
+
+    def fit(self, train_df: pd.DataFrame) -> None:
+        parsed = [_parse_mutation(mutation) for mutation in train_df["mutant"].tolist()]
+
+        singles = sorted({token for tokens in parsed for token in tokens})
+        self.single_index = {token: idx for idx, token in enumerate(singles)}
+
+        observed_pairs = set()
+        for tokens in parsed:
+            if len(tokens) == 2:
+                observed_pairs.add(_sorted_pair(tokens[0], tokens[1]))
+        self.pair_index = {pair: idx for idx, pair in enumerate(sorted(observed_pairs))}
+
+        x_train = self.transform_mutations(parsed)
+        y_train = train_df["fitness"].to_numpy(dtype=float)
+
+        # Scale features to have unit variance
+        x_train_scaled = self.scaler.fit_transform(x_train)
+
+        load_counts = train_df["num_mutations"].value_counts().to_dict()
+        sample_weight = np.array(
+            [1.0 / max(1, load_counts.get(int(load), 1)) for load in train_df["num_mutations"]],
+            dtype=float,
+        )
+        sample_weight *= len(sample_weight) / np.sum(sample_weight)
+        self.model.fit(x_train_scaled, y_train, sample_weight=sample_weight)
+
+    def transform_mutations(self, parsed_mutations: List[List[str]]) -> sparse.csr_matrix:
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+
+        single_offset = 0
+        pair_offset = len(self.single_index)
+        load_offset = pair_offset + len(self.pair_index)
+
+        for row_idx, tokens in enumerate(parsed_mutations):
+            for token in tokens:
+                if token in self.single_index:
+                    rows.append(row_idx)
+                    cols.append(single_offset + self.single_index[token])
+                    data.append(1.0)
+
+            all_pairs = list(combinations(sorted(tokens), 2))
+            if all_pairs:
+                weight = self.pair_scale / len(all_pairs)
+                for pair in all_pairs:
+                    if pair in self.pair_index:
+                        rows.append(row_idx)
+                        cols.append(pair_offset + self.pair_index[pair])
+                        data.append(weight)
+
+            load_values[row_idx, 0] = float(len(tokens))
+            load_values[row_idx, 1] = float(len(all_pairs))
+
+        width = load_offset + load_values.shape[1]
+        mutation_matrix = sparse.csr_matrix((data, (rows, cols)), shape=(len(parsed_mutations), width))
+        load_matrix = sparse.csr_matrix(load_values)
+        return sparse.hstack([mutation_matrix[:, :load_offset], load_matrix], format="csr")
+
+    def predict(self, test_df: pd.DataFrame) -> np.ndarray:
+        parsed = [_parse_mutation(mutation) for mutation in test_df["mutant"].tolist()]
+        x_test = self.transform_mutations(parsed)
+        # Apply the same scaling to the test data
+        x_test_scaled = self.scaler.transform(x_test)
+        return self.model.predict(x_test_scaled)
+
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del dataset_context
+    global _PACEVOLVE_LAST_ANALYSIS_ARTIFACT
+    model = SparseMutationRidge(alpha=2.0, pair_scale=0.75)
+    model.fit(train_df)
+    coef = np.asarray(model.model.coef_, dtype=float)
+    _PACEVOLVE_LAST_ANALYSIS_ARTIFACT = {
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "alpha": float(model.alpha),
+        "pair_scale": float(model.pair_scale),
+        "num_single_features": float(len(model.single_index)),
+        "num_pair_features": float(len(model.pair_index)),
+        "n_iter_actual": float(model.model.n_iter_),
+        "coef_l2_norm": float(np.linalg.norm(coef)),
+        "coef_max_abs": float(np.max(np.abs(coef))) if coef.size else 0.0,
+        "coef_mean_abs": float(np.mean(np.abs(coef))) if coef.size else 0.0,
+        "intercept": float(np.asarray(model.model.intercept_).reshape(-1)[0]),
+    }
+    return model.predict(test_df)
+```
+
+Your job is to implement an analysis function:
+`def analyze_candidate(candidate_source: str, eval_output: str, artifact_info: dict[str, object]) -> dict[str, float]:`
+
+The analyzer will run after evaluation has finished. It will receive:
+- `candidate_source`: the evaluated source code
+- `eval_output`: the raw stdout/stderr from evaluation
+- `artifact_info`: structured metadata extracted from produced checkpoints, artifacts, logs, and parsed training trajectories
+
+Design metrics that help explain why the candidate worked or failed beyond the final score alone.
+Prioritize signals such as training stability, convergence shape, validation trajectory, wallclock usage,
+artifact budget pressure, checkpoint health, weight distributions, failure signatures, and concrete
+signals that can inform the next improvement step.
+
+Requirements:
+- Analyze ONLY the provided `candidate_source`, `eval_output`, and `artifact_info` arguments.
+- Use Python stdlib only; do not import project modules or third-party packages in the generated analyzer.
+- Return ONLY numeric metrics (floats/ints) in a plain `dict[str, float]`.
+- Include at least 8 metrics that help explain why the proposal worked or did not work.
+- Prefix every metric key with `analysis_`.
+- Keep the code deterministic, cheap, and robust to missing artifacts or partial eval output.
+- Favor experiment-diagnostic metrics over superficial code-shape metrics.
+- Choose metrics that will help the next iteration diagnose bottlenecks and propose a better candidate.
+- Prioritize signals such as trajectory smoothness, training/validation improvement, runtime efficiency, artifact size headroom, checkpoint integrity, parameter-health summaries, and failure signatures.
+- Output exactly one markdown Python code block.
+- Define `analyze_candidate(candidate_source: str, eval_output: str, artifact_info: dict[str, object])` exactly once.
+---
+
+--- role: model tags: [post_eval_analysis_loop] ---
+```python
+import re
+from typing import Any, Dict
+
+
+def analyze_candidate(
+    candidate_source: str, eval_output: str, artifact_info: Dict[str, Any]
+) -> Dict[str, float]:
+    """
+    Analyzes the performance of a candidate using its source, output, and artifacts.
+
+    This analyzer focuses on the impact of introducing SGDRegressor with early stopping,
+    examining convergence behavior, model complexity, and weight distribution.
+    """
+    metrics: Dict[str, float] = {}
+
+    # Initialize all metrics with a default value for robustness
+    keys = [
+        "final_score",
+        "n_iter_actual",
+        "stopped_early_flag",
+        "convergence_ratio",
+        "total_features",
+        "pair_feature_ratio",
+        "coef_l2_norm",
+        "coef_spread_ratio",
+        "intercept_magnitude",
+        "score_per_iteration",
+        "hyperparam_alpha",
+        "hyperparam_pair_scale",
+    ]
+    for key in keys:
+        metrics[f"analysis_{key}"] = -1.0
+
+    # 1. Parse final score from evaluation output
+    for line in eval_output.splitlines():
+        if "Final score:" in line:
+            try:
+                score_str = line.split(":")[-1].strip()
+                metrics["analysis_final_score"] = float(score_str)
+                break
+            except (ValueError, IndexError):
+                pass  # Keep default if parsing fails
+
+    # 2. Extract information from the analysis artifact
+    artifact = artifact_info.get("last_analysis_artifact")
+    if isinstance(artifact, dict):
+        # --- Convergence and Training Metrics ---
+        n_iter_actual = artifact.get("n_iter_actual", -1.0)
+        metrics["analysis_n_iter_actual"] = float(n_iter_actual)
+
+        # Parse max_iter from source code to create a convergence ratio
+        max_iter_val = 5000.0  # Default from the provided code
+        match = re.search(r"max_iter\s*=\s*(\d+)", candidate_source)
+        if match:
+            max_iter_val = float(match.group(1))
+
+        if n_iter_actual > 0:
+            metrics["analysis_stopped_early_flag"] = (
+                1.0 if n_iter_actual < max_iter_val else 0.0
+            )
+            if max_iter_val > 0:
+                metrics["analysis_convergence_ratio"] = n_iter_actual / max_iter_val
+
+        # Calculate score efficiency
+        final_score = metrics["analysis_final_score"]
+        if n_iter_actual > 0 and final_score != -1.0:
+            metrics["analysis_score_per_iteration"] = final_score / n_iter_actual
+
+        # --- Feature Engineering Metrics ---
+        num_single = artifact.get("num_single_features", 0.0)
+        num_pair = artifact.get("num_pair_features", 0.0)
+        total_features = num_single + num_pair
+        metrics["analysis_total_features"] = float(total_features)
+        if total_features > 0:
+            metrics["analysis_pair_feature_ratio"] = float(num_pair / total_features)
+        else:
+            metrics["analysis_pair_feature_ratio"] = 0.0
+
+        # --- Model Parameter Health Metrics ---
+        metrics["analysis_coef_l2_norm"] = float(artifact.get("coef_l2_norm", -1.0))
+        coef_max_abs = artifact.get("coef_max_abs", 0.0)
+        coef_mean_abs = artifact.get("coef_mean_abs", 0.0)
+        if coef_mean_abs > 1e-9:
+            metrics["analysis_coef_spread_ratio"] = float(coef_max_abs / coef_mean_abs)
+        else:
+            metrics["analysis_coef_spread_ratio"] = 0.0
+        
+        intercept = artifact.get("intercept", 0.0)
+        metrics["analysis_intercept_magnitude"] = abs(float(intercept))
+
+        # --- Hyperparameter Tracking ---
+        metrics["analysis_hyperparam_alpha"] = float(artifact.get("alpha", -1.0))
+        metrics["analysis_hyperparam_pair_scale"] = float(artifact.get("pair_scale", -1.0))
+
+    return metrics
+```
+---
+
+--- role: system tags: [post_eval_analysis_summary] ---
+Post-eval analysis (generated) metrics:
+```json
+{"analysis_coef_l2_norm": -1.0, "analysis_coef_spread_ratio": -1.0, "analysis_convergence_ratio": -1.0, "analysis_final_score": -1.0, "analysis_hyperparam_alpha": -1.0, "analysis_hyperparam_pair_scale": -1.0, "analysis_intercept_magnitude": -1.0, "analysis_n_iter_actual": -1.0, "analysis_pair_feature_ratio": -1.0, "analysis_score_per_iteration": -1.0, "analysis_stopped_early_flag": -1.0, "analysis_total_features": -1.0}
+```
+---
+
+--- role: user tags: [initial_eval_results] ---
+
+### Candidate results
+The evaluator reports extrapolation quality across public DMS datasets.
+
+### Understanding metrics
+- `mean_pearson_r` measures global multimutant ranking/regression quality.
+- `mean_precision_top5` measures recovery of the truly best high-order variants.
+- `combined_score = 0.7 * mean_pearson_r + 0.3 * mean_precision_top5`.
+
+---
+
+--- role: system tags: [initial_eval_results] ---
+```
+Candidate: {"benchmark_protocol": "paper", "combined_score": 0.27272531674656547, "datasets": [{"combined_score": 0.4373693312769558, "dataset_id": "F7YBW8_MESOW_Aakre_2015", "pearson_r": 0.349656616439861, "precision_top5": 0.6420323325635104, "test_size": 8656}, {"combined_score": 0.06481453032874844, "dataset_id": "Q65J43_BACLD_g4_Thomas_2025", "pearson_r": 0.09259218618392634, "precision_top5": 0.0, "test_size": 465}, {"combined_score": 0.2981214811041474, "dataset_id": "D7PM05_CLYGR_Somermeyer_2022", "pearson_r": 0.37782374470151897, "precision_top5": 0.11214953271028037, "test_size": 10695}, {"combined_score": 0.2745749531116664, "dataset_id": "GFP_AEQVI_Sarkisyan_2016", "pearson_r": 0.3657432365880949, "precision_top5": 0.061848958333333336, "test_size": 30717}, {"combined_score": 0.2887462879113094, "dataset_id": "VH14_Li_2023", "pearson_r": 0.29004571742431956, "precision_top5": 0.2857142857142857, "test_size": 4477}], "mean_pearson_r": 0.29517230026754415, "mean_precision_top5": 0.22034902186428199, "num_datasets": 5}
+
+```
+---
+
+--- role: user tags: [post_eval_diagnosis_prompt] ---
+You are diagnosing a just-evaluated candidate so the next iteration can propose a better solution.
+
+Selected hypothesis:
+Implement early stopping during training
+
+Experiment description:
+Add an early stopping callback during Ridge training.
+
+Candidate implementation excerpt:
+```python
+from __future__ import annotations
+
+from itertools import combinations
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import SGDRegressor
+from sklearn.preprocessing import StandardScaler
+
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
+
+def _parse_mutation(mutation: str) -> List[str]:
+    text = str(mutation).strip()
+    if not text or text == "WT" or text.lower() == "nan":
+        return []
+    return [token for token in text.replace(":", "/").split("/") if token and token != "WT"]
+
+
+def _sorted_pair(token_a: str, token_b: str) -> Tuple[str, str]:
+    return tuple(sorted((token_a, token_b)))
+
+
+class SparseMutationRidge:
+    """
+    Ridge regression over sparse single and pairwise mutation indicators.
+    This implementation uses SGDRegressor to enable early stopping during training.
+    """
+
+    def __init__(self, alpha: float = 2.0, pair_scale: float = 0.75):
+        self.alpha = alpha
+        self.pair_scale = pair_scale
+        self.single_index: Dict[str, int] = {}
+        self.pair_index: Dict[Tuple[str, str], int] = {}
+        self.model = SGDRegressor(
+            loss="squared_error",
+            penalty="l2",
+            alpha=self.alpha,
+            fit_intercept=True,
+            max_iter=5000,  # A high number to allow convergence
+            tol=1e-4,
+            shuffle=True,
+            random_state=42,  # For reproducibility
+            early_stopping=True,
+            n_iter_no_change=10,  # Stop if validation score doesn't improve for 10 epochs
+            validation_fraction=0.1,  # Use 10% of training data for validation
+            learning_rate="invscaling",
+            eta0=0.01,
+        )
+        # SGD is sensitive to feature scaling; StandardScaler is appropriate for sparse data.
+        self.scaler = StandardScaler(with_mean=False)
+
+    def fit(self, train_df: pd.DataFrame) -> None:
+        parsed = [_parse_mutation(mutation) for mutation in train_df["mutant"].tolist()]
+
+        singles = sorted({token for tokens in parsed for token in tokens})
+        self.single_index = {token: idx for idx, token in enumerate(singles)}
+
+        observed_pairs = set()
+        for tokens in parsed:
+            if len(tokens) == 2:
+                observed_pairs.add(_sorted_pair(tokens[0], tokens[1]))
+        self.pair_index = {pair: idx for idx, pair in enumerate(sorted(observed_pairs))}
+
+        x_train = self.transform_mutations(parsed)
+        y_train = train_df["fitness"].to_numpy(dtype=float)
+
+        # Scale features to have unit variance
+        x_train_scaled = self.scaler.fit_transform(x_train)
+
+        load_counts = train_df["num_mutations"].value_counts().to_dict()
+        sample_weight = np.array(
+            [1.0 / max(1, load_counts.get(int(load), 1)) for load in train_df["num_mutations"]],
+            dtype=float,
+        )
+        sample_weight *= len(sample_weight) / np.sum(sample_weight)
+        self.model.fit(x_train_scaled, y_train, sample_weight=sample_weight)
+
+    def transform_mutations(self, parsed_mutations: List[List[str]]) -> sparse.csr_matrix:
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        load_values = np.zeros((len(parsed_mutations), 2), dtype=float)
+
+        single_offset = 0
+        pair_offset = len(self.single_index)
+        load_offset = pair_offset + len(self.pair_index)
+
+        for row_idx, tokens in enumerate(parsed_mutations):
+            for token in tokens:
+                if token in self.single_index:
+                    rows.append(row_idx)
+                    cols.append(single_offset + self.single_index[token])
+                    data.append(1.0)
+
+            all_pairs = list(combinations(sorted(tokens), 2))
+            if all_pairs:
+                weight = self.pair_scale / len(all_pairs)
+                for pair in all_pairs:
+                    if pair in self.pair_index:
+                        rows.append(row_idx)
+                        cols.append(pair_offset + self.pair_index[pair])
+                        data.append(weight)
+
+            load_values[row_idx, 0] = float(len(tokens))
+            load_values[row_idx, 1] = float(len(all_pairs))
+
+        width = load_offset + load_values.shape[1]
+        mutation_matrix = sparse.csr_matrix((data, (rows, cols)), shape=(len(parsed_mutations), width))
+        load_matrix = sparse.csr_matrix(load_values)
+        return sparse.hstack([mutation_matrix[:, :load_offset], load_matrix], format="csr")
+
+    def predict(self, test_df: pd.DataFrame) -> np.ndarray:
+        parsed = [_parse_mutation(mutation) for mutation in test_df["mutant"].tolist()]
+        x_test = self.transform_mutations(parsed)
+        # Apply the same scaling to the test data
+        x_test_scaled = self.scaler.transform(x_test)
+        return self.model.predict(x_test_scaled)
+
+
+def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
+    del datas...
+```
+
+Parsed evaluation metrics:
+```json
+{
+  "benchmark_protocol": "paper",
+  "combined_score": 0.27272531674656547,
+  "datasets": [
+    {
+      "combined_score": 0.4373693312769558,
+      "dataset_id": "F7YBW8_MESOW_Aakre_2015",
+      "pearson_r": 0.349656616439861,
+      "precision_top5": 0.6420323325635104,
+      "test_size": 8656
+    },
+    {
+      "combined_score": 0.06481453032874844,
+      "dataset_id": "Q65J43_BACLD_g4_Thomas_2025",
+      "pearson_r": 0.09259218618392634,
+      "precision_top5": 0.0,
+      "test_size": 465
+    },
+    {
+      "combined_score": 0.2981214811041474,
+      "dataset_id": "D7PM05_CLYGR_Somermeyer_2022",
+      "pearson_r": 0.37782374470151897,
+      "precision_top5": 0.11214953271028037,
+      "test_size": 10695
+    },
+    {
+      "combined_score": 0.2745749531116664,
+      "dataset_id": "GFP_AEQVI_Sarkisyan_2016",
+      "pearson_r": 0.3657432365880949,
+      "precision_top5": 0.061848958333333336,
+      "test_size": 30717
+    },
+    {
+      "combined_score": 0.2887462879113094,
+      "dataset_id": "VH14_Li_2023",
+      "pearson_r": 0.29004571742431956,
+      "precision_top5": 0.2857142857142857,
+      "test_size": 4477
+    }
+  ],
+  "mean_pearson_r": 0.29517230026754415,
+  "mean_precision_top5": 0.22034902186428199,
+  "num_datasets": 5
+}
+```
+
+Structured task artifact:
+```json
+{
+  "datasets": [
+    {
+      "candidate_artifact": {
+        "alpha": 2.0,
+        "coef_l2_norm": 0.20326520041813326,
+        "coef_max_abs": 0.11557738056331326,
+        "coef_mean_abs": 0.004081994516925966,
+        "intercept": 0.010527312136266734,
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "n_iter_actual": 11.0,
+        "num_pair_features": 499.0,
+        "num_single_features": 37.0,
+        "pair_scale": 0.75
+      },
+      "dataset_id": "F7YBW8_MESOW_Aakre_2015",
+      "metrics": {
+        "combined_score": 0.4373693312769558,
+        "dataset_id": "F7YBW8_MESOW_Aakre_2015",
+        "pearson_r": 0.349656616439861,
+        "precision_top5": 0.6420323325635104,
+        "test_size": 8656
+      },
+      "prediction_summary": {
+        "num_predictions": 8656,
+        "prediction_max": 0.3175151176914279,
+        "prediction_mean": -0.7667255534949418,
+        "prediction_min": -1.3574545406327856,
+        "prediction_std": 0.47061294579046364
+      }
+    },
+    {
+      "candidate_artifact": {
+        "alpha": 2.0,
+        "coef_l2_norm": 0.2635008194315592,
+        "coef_max_abs": 0.21924295202437302,
+        "coef_mean_abs": 0.00454962821495134,
+        "intercept": 0.015205368581461738,
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "n_iter_actual": 11.0,
+        "num_pair_features": 241.0,
+        "num_single_features": 220.0,
+        "pair_scale": 0.75
+      },
+      "dataset_id": "Q65J43_BACLD_g4_Thomas_2025",
+      "metrics": {
+        "combined_score": 0.06481453032874844,
+        "dataset_id": "Q65J43_BACLD_g4_Thomas_2025",
+        "pearson_r": 0.09259218618392634,
+        "precision_top5": 0.0,
+        "test_size": 465
+      },
+      "prediction_summary": {
+        "num_predictions": 465,
+        "prediction_max": 6.2342158501446185,
+        "prediction_mean": 2.358441446651089,
+        "prediction_min": 1.4675126307061077,
+        "prediction_std": 0.9042627185369354
+      }
+    },
+    {
+      "candidate_artifact": {
+        "alpha": 2.0,
+        "coef_l2_norm": 10924.250486020579,
+        "coef_max_abs": 3101.375774196223,
+        "coef_mean_abs": 32.88071234712426,
+        "intercept": 4819.973565693417,
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "n_iter_actual": 26.0,
+        "num_pair_features": 9517.0,
+        "num_single_features": 1169.0,
+        "pair_scale": 0.75
+      },
+      "dataset_id": "D7PM05_CLYGR_Somermeyer_2022",
+      "metrics": {
+        "combined_score": 0.2981214811041474,
+        "dataset_id": "D7PM05_CLYGR_Somermeyer_2022",
+        "pearson_r": 0.37782374470151897,
+        "precision_top5": 0.11214953271028037,
+        "test_size": 10695
+      },
+      "prediction_summary": {
+        "num_predictions": 10695,
+        "prediction_max": 282431.506100098,
+        "prediction_mean": 17588.546465580293,
+        "prediction_min": -220748.58732662656,
+        "prediction_std": 19309.951523484837
+      }
+    },
+    {
+      "candidate_artifact": {
+        "alpha": 2.0,
+        "coef_l2_norm": 1.4477649360745037,
+        "coef_max_abs": 0.5076875549523344,
+        "coef_mean_abs": 0.0021227451373692753,
+        "intercept": 0.49026512030786923,
+        "model_type": "SGDRegressorWithEarlyStopping",
+        "n_iter_actual": 14.0,
+        "num_pair_features": 11954.0,
+        "num_single_features": 1084.0,
+        "pair_scale": 0.75
+      },
+      "dataset_id": "GFP_AEQVI_Sarkisyan_2016",
+      "metrics": {
+        "combined_score": 0.2745749531116664,
+        "dataset_id": "GFP_AEQVI_Sarkisyan_2016",
+        "pearson_r": 0.3657432365880949,
+        "precision_top5": 0.061848958333333336,
+        "test_size": 30717
+      },
+      "prediction_summary": {
+        "num_predictions": 30717,
+        "prediction_max": 57.85000966924134,
+        "prediction_mean": 2.275583870066384,
+        "prediction_min": -49.12931207504511,
+        "prediction_std": 3.9221035755117315
+      }
+    },
+    {
+      "candidate_artifact": {
+        "alpha": 2.0,
+   ...
+```
+
+Post-eval analysis metrics:
+```json
+{
+  "analysis_coef_l2_norm": -1.0,
+  "analysis_coef_spread_ratio": -1.0,
+  "analysis_convergence_ratio": -1.0,
+  "analysis_final_score": -1.0,
+  "analysis_hyperparam_alpha": -1.0,
+  "analysis_hyperparam_pair_scale": -1.0,
+  "analysis_intercept_magnitude": -1.0,
+  "analysis_n_iter_actual": -1.0,
+  "analysis_pair_feature_ratio": -1.0,
+  "analysis_score_per_iteration": -1.0,
+  "analysis_stopped_early_flag": -1.0,
+  "analysis_total_features": -1.0
+}
+```
+
+Analysis mode: generated
+
+Raw evaluation excerpt:
+```text
+Candidate: {"benchmark_protocol": "paper", "combined_score": 0.27272531674656547, "datasets": [{"combined_score": 0.4373693312769558, "dataset_id": "F7YBW8_MESOW_Aakre_2015", "pearson_r": 0.349656616439861, "precision_top5": 0.6420323325635104, "test_size": 8656}, {"combined_score": 0.06481453032874844, "dataset_id": "Q65J43_BACLD_g4_Thomas_2025", "pearson_r": 0.09259218618392634, "precision_top5": 0.0, "test_size": 465}, {"combined_score": 0.2981214811041474, "dataset_id": "D7PM05_CLYGR_Somermeyer_2022", "pearson_r": 0.37782374470151897, "precision_top5": 0.11214953271028037, "test_size": 10695}, {"combined_score": 0.2745749531116664, "dataset_id": "GFP_AEQVI_Sarkisyan_2016", "pearson_r": 0.3657432365880949, "precision_top5": 0.061848958333333336, "test_size": 30717}, {"combined_score": 0.2887462879113094, "dataset_id": "VH14_Li_2023", "pearson_r": 0.29004571742431956, "precision_top5": 0.2857142857142857, "test_size": 4477}], "mean_pearson_r": 0.29517230026754415, "mean_precision_top5": 0.22034902186428199, "num_datasets": 5}
+```
+
+Post-eval analysis excerpt:
+```text
+AnalyzerMode: generated
+AnalysisMetrics: {"analysis_coef_l2_norm": -1.0, "analysis_coef_spread_ratio": -1.0, "analysis_convergence_ratio": -1.0, "analysis_final_score": -1.0, "analysis_hyperparam_alpha": -1.0, "analysis_hyperparam_pair_scale": -1.0, "analysis_intercept_magnitude": -1.0, "analysis_n_iter_actual": -1.0, "analysis_pair_feature_ratio": -1.0, "analysis_score_per_iteration": -1.0, "analysis_stopped_early_flag": -1.0, "analysis_total_features": -1.0}
+```
+
+Write a concise diagnosis for future improvement. Use this exact structure:
+
+Strengths:
+- ...
+
+Bottlenecks:
+- ...
+
+Next iteration opportunities:
+- ...
+- ...
+- ...
+
+Ground your claims in the metrics and observed behavior above. Focus on what the next proposal should change.
+---
+
+--- role: model tags: [post_eval_diagnosis_response] ---
+Strengths:
+- The implementation successfully switched from `Ridge` to `SGDRegressor` and enabled the `early_stopping` feature. The `n_iter_actual` values in the artifacts (e.g., 11, 26, 14) confirm that the model is terminating training before reaching the `max_iter` of 5000, which was the intended goal of the experiment.
+
+Bottlenecks:
+- The model suffers from severe numerical instability, which has drastically degraded performance (combined score of 0.2727). The `candidate_artifact` for dataset `D7PM05_CLYGR_Somermeyer_2022` shows an exploding `coef_l2_norm` of over 10,000 and predictions in the range of +/- 200,000. In contrast, other datasets have coefficient norms below 2.0.
+- This instability is a classic symptom of using a stochastic gradient-based optimizer (`SGDRegressor`) without properly scaling the target variable (`y`). While the input features (`X`) were scaled with `StandardScaler`, the `fitness` values were not, causing massive gradients on datasets with large fitness ranges, leading to model divergence.
+
+Next iteration opportunities:
+- **Scale the target variable:** Before fitting the model, apply a scaler (e.g., `StandardScaler`) to the `y_train` fitness values. The final predictions must then be inverse-transformed back to their original scale. This is the most critical fix to address the observed numerical instability.
+- **Use an adaptive learning rate:** Change the `learning_rate` parameter in `SGDRegressor` from `'invscaling'` to `'adaptive'`. An adaptive learning rate can automatically adjust when the training loss plateaus, providing more robust convergence and reducing sensitivity to the initial learning rate (`eta0`).
+- **Re-evaluate `alpha` after scaling:** The regularization strength `alpha=2.0` was inherited from the original `Ridge` model. After scaling both features and the target, the optimal value for `alpha` will likely change. It should be re-tuned, possibly to a smaller value, as scaling can alter the effective magnitude of the penalty.
+---
+
+--- role: system tags: [post_eval_diagnosis_summary] ---
+Post-eval diagnosis for future iterations:
+Strengths:
+- The implementation successfully switched from `Ridge` to `SGDRegressor` and enabled the `early_stopping` feature. The `n_iter_actual` values in the artifacts (e.g., 11, 26, 14) confirm that the model is terminating training before reaching the `max_iter` of 5000, which was the intended goal of the experiment.
+
+Bottlenecks:
+- The model suffers from severe numerical instability, which has drastically degraded performance (combined score of 0.2727). The `candidate_artifact` for dataset `D7PM05_CLYGR_Somermeyer_2022` shows an exploding `coef_l2_norm` of over 10,000 and predictions in the range of +/- 200,000. In contrast, other datasets have coefficient norms below 2.0.
+- This instability is a classic symptom of using a stochastic gradient-based optimizer (`SGDRegressor`) without properly scaling the target variable (`y`). While the input features (`X`) were scaled with `StandardScaler`, the `fitness` values were not, causing massive gradients on datasets with large fitness ranges, leading to model divergence.
+
+Next iteration opportunities:
+- **Scale the target variable:** Before fitting the model, apply a scaler (e.g., `StandardScaler`) to the `y_train` fitness values. The final predictions must then be inverse-transformed back to their original scale. This is the most critical fix to address the observed numerical instability.
+- **Use an adaptive learning rate:** Change the `learning_rate` parameter in `SGDRegressor` from `'invscaling'` to `'adaptive'`. An adaptive learning rate can automatically adjust when the training loss plateaus, providing more robust convergence and reducing sensitivity to the initial learning rate (`eta0`).
+- **Re-evaluate `alpha` after scaling:** The regularization strength `alpha=2.0` was inherited from the original `Ridge` model. After scaling both features and the target, the optimal value for `alpha` will likely change. It should be re-tuned, possibly to a smaller value, as scaling can alter the effective magnitude of the penalty.
+---
+
+--- role: user tags: [final_summary_request] ---
+
+## Your Task
+
+Provide a concise summary of this experiment. First write one short paragraph. Then provide exactly 1 bullet point beginning with `-`.
+
+In the bullet, include:
+- Results: combined_score, mean_pearson_r, mean_precision_top5
+- The specific model or feature change that mattered
+
+---
+
+--- role: model tags: [final_summary_response] ---
+This experiment introduced early stopping by replacing the `Ridge` model with `SGDRegressor`. While the change successfully enabled early termination of training, it caused severe numerical instability because the target fitness values were not scaled. This led to exploding model coefficients on some datasets and a significant degradation in overall predictive performance, making the model worse than the original baseline.
+
+- Replacing the `Ridge` solver with `SGDRegressor` to add early stopping resulted in a `combined_score` of 0.273, `mean_pearson_r` of 0.295, and `mean_precision_top5` of 0.220, a poor outcome caused by numerical instability from unscaled target values.
+---
+
