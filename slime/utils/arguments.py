@@ -1160,6 +1160,12 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 help="Directory for PACEvolve gym recorder outputs.",
             )
             parser.add_argument(
+                "--pacevolve-gym-disable-analysis-script",
+                action="store_true",
+                default=False,
+                help="Disable model-generated post-eval analyzer scripts in PACEvolve gym.",
+            )
+            parser.add_argument(
                 "--pacevolve-gym-seed",
                 type=int,
                 default=1234,

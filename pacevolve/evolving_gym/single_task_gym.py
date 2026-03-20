@@ -321,7 +321,7 @@ class PACEvolveSingleTaskGym:
         self._analysis_generate_script = bool(
             kwargs.get(
                 "analysis_generate_script",
-                self.config.get("analysis", {}).get("generate_script_in_gym", False),
+                self.config.get("analysis", {}).get("generate_script_in_gym", True),
             )
         )
         analysis_cfg = self.config.get("analysis", {})
@@ -657,6 +657,37 @@ class PACEvolveSingleTaskGym:
             return text
         return text[: max_chars - 3] + "..."
 
+    def _load_structured_analysis_artifact(
+        self,
+        results_dir: Optional[str],
+    ) -> Dict[str, Any]:
+        if not results_dir or not os.path.isdir(results_dir):
+            return {}
+
+        latest_path = None
+        latest_mtime = None
+        for root, _dirs, files in os.walk(results_dir):
+            if "analysis_artifact.json" not in files:
+                continue
+            candidate = os.path.join(root, "analysis_artifact.json")
+            try:
+                mtime = os.path.getmtime(candidate)
+            except OSError:
+                continue
+            if latest_mtime is None or mtime > latest_mtime:
+                latest_path = candidate
+                latest_mtime = mtime
+
+        if not latest_path:
+            return {}
+
+        try:
+            with open(latest_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return payload if isinstance(payload, dict) else {"value": payload}
+        except Exception as e:
+            return {"load_error": str(e), "path": latest_path}
+
     def _store_analysis_history(
         self,
         island_id: int,
@@ -701,12 +732,21 @@ class PACEvolveSingleTaskGym:
                     )
                 )
             analysis_metrics = entry.get("analysis_metrics")
-            if analysis_metrics:
+            structured_artifact = entry.get("structured_artifact")
+            if structured_artifact:
+                lines.append(
+                    "Structured artifact: "
+                    + self._truncate_text(
+                        json.dumps(structured_artifact, sort_keys=True),
+                        2200,
+                    )
+                )
+            elif analysis_metrics:
                 lines.append(
                     "Analysis metrics: "
                     + self._truncate_text(
                         json.dumps(analysis_metrics, sort_keys=True),
-                        1400,
+                        800,
                     )
                 )
             diagnosis = self._truncate_text(entry.get("diagnosis"), 1600)
@@ -726,9 +766,14 @@ class PACEvolveSingleTaskGym:
         eval_results: List[str],
         analysis_metrics: Optional[Dict[str, float]],
         analysis_results: str,
+        structured_artifact: Optional[Dict[str, Any]],
     ) -> str:
         eval_metrics_json = json.dumps(eval_metrics or {}, indent=2, sort_keys=True)
         analysis_metrics_json = json.dumps(analysis_metrics or {}, indent=2, sort_keys=True)
+        structured_artifact_json = self._truncate_text(
+            json.dumps(structured_artifact or {}, indent=2, sort_keys=True),
+            4000,
+        )
         eval_excerpt = self._truncate_text("\n\n".join(eval_results or []), 2500)
         analysis_excerpt = self._truncate_text(analysis_results, 2000)
         candidate_excerpt = self._truncate_text(candidate_code, 5000)
@@ -749,6 +794,11 @@ Candidate implementation excerpt:
 Parsed evaluation metrics:
 ```json
 {eval_metrics_json}
+```
+
+Structured task artifact:
+```json
+{structured_artifact_json}
 ```
 
 Post-eval analysis metrics:
@@ -1286,6 +1336,7 @@ Original policy output:
                 self._create_sample_workspace(eval_gpu_id=eval_gpu_id)
             )
             analysis_artifacts = None
+            structured_analysis_artifact: Dict[str, Any] = {}
             print(
                 f"[PACEvolve] Using temp workspace target_file={compile_config_override.target_file_path} "
                 f"eval_gpu_id={eval_gpu_id}",
@@ -1378,11 +1429,15 @@ Original policy output:
                         logger.warning("Post-eval analysis crashed: %s", e)
                         trial.analysis_success = False
                         trial.analysis_errors.append(f"Post-eval analysis crashed: {e}")
+                    structured_analysis_artifact = self._load_structured_analysis_artifact(
+                        config_override["paths"].get("results_path"),
+                    )
                     analysis_artifacts = {
                         "analysis": {
                             "success": trial.analysis_success,
                             "attempts": trial.analysis_attempts,
                             "metrics": dict(trial.analysis_metrics),
+                            "structured_artifact": structured_analysis_artifact,
                             "errors": list(trial.analysis_errors),
                             "results": trial.analysis_results,
                         }
@@ -1439,6 +1494,7 @@ Original policy output:
                         eval_results=trial.eval_results,
                         analysis_metrics=trial.analysis_metrics,
                         analysis_results=trial.analysis_results,
+                        structured_artifact=structured_analysis_artifact,
                     )
                     transcript.append(ContentChunk(
                         diagnosis_prompt, "user", tags=["post_eval_diagnosis_prompt"],
@@ -1474,6 +1530,7 @@ Original policy output:
                         "experiment_description": exp_description,
                         "eval_metrics": eval_metrics if isinstance(eval_metrics, dict) else {},
                         "analysis_metrics": dict(trial.analysis_metrics or {}),
+                        "structured_artifact": structured_analysis_artifact,
                         "analysis_success": bool(trial.analysis_success),
                         "diagnosis": analysis_diagnosis,
                     },
@@ -1552,9 +1609,6 @@ Original policy output:
             if self._analysis_enabled:
                 child_metrics["analysis_success"] = 1.0 if trial.analysis_success else 0.0
                 child_metrics["analysis_attempts"] = float(trial.analysis_attempts)
-                for key, value in (trial.analysis_metrics or {}).items():
-                    if key not in child_metrics:
-                        child_metrics[key] = value
             child = ChildProgram(
                 id=str(uuid.uuid4()),
                 code=trial.algorithm_implementation,

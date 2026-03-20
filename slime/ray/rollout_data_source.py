@@ -32,7 +32,7 @@ class PACEvolveGymManager:
         assert args.pacevolve_gym_config_path, \
             "PACEvolveGym needs --pacevolve-gym-config-path"
 
-        self.gym = PACEvolveSingleTaskGym(
+        gym_kwargs = dict(
             config_path=args.pacevolve_gym_config_path,
             initial_program_path=getattr(args, "pacevolve_gym_initial_program", None),
             max_concurrent_evaluations=getattr(args, "pacevolve_gym_max_concurrent_evals", 1),
@@ -47,6 +47,10 @@ class PACEvolveGymManager:
             summarize_freq=getattr(args, "pacevolve_gym_summarize_freq", 20),
             n_samples_per_prompt=getattr(args, "n_samples_per_prompt", 1),
         )
+        if getattr(args, "pacevolve_gym_disable_analysis_script", False):
+            gym_kwargs["analysis_generate_script"] = False
+
+        self.gym = PACEvolveSingleTaskGym(**gym_kwargs)
         self.num_islands = int(getattr(self.gym, "num_islands", 0))
         expected_islands = int(getattr(args, "n_samples_per_prompt", 1))
         if self.num_islands != expected_islands:
