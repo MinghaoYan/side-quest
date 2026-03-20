@@ -30,10 +30,19 @@ import sys
 import zlib
 from pathlib import Path
 
-try:
-    import torch
-except Exception:  # pragma: no cover - optional dependency in harness fallback
-    torch = None
+_TORCH_STATE = {"loaded": False, "module": None}
+
+
+def _get_torch():
+    if _TORCH_STATE["loaded"]:
+        return _TORCH_STATE["module"]
+    try:
+        import torch as torch_module
+    except Exception:  # pragma: no cover - optional dependency in harness fallback
+        torch_module = None
+    _TORCH_STATE["loaded"] = True
+    _TORCH_STATE["module"] = torch_module
+    return torch_module
 
 
 def _safe_float(value) -> float | None:
@@ -53,6 +62,7 @@ def _tensor_summary(tensors: dict[str, object]) -> dict[str, float]:
         "abs_mean": 0.0,
         "zero_fraction": 0.0,
     }
+    torch = _get_torch()
     if torch is None:
         return summary
 
@@ -251,9 +261,10 @@ def _summarize_float_checkpoint(path: str | None) -> dict[str, object]:
         return summary
     summary["exists"] = 1.0
     summary["size_bytes"] = float(checkpoint_path.stat().st_size)
-    if torch is None:
-        return summary
     try:
+        torch = _get_torch()
+        if torch is None:
+            return summary
         state_dict = _extract_state_dict(torch.load(checkpoint_path, map_location="cpu"))
         summary.update(_tensor_summary(state_dict))
     except Exception as exc:
@@ -281,6 +292,7 @@ def _summarize_quantized_artifact(path: str | None) -> dict[str, object]:
         summary["decompressed_bytes"] = float(len(decompressed))
         if len(compressed) > 0:
             summary["compression_ratio"] = float(len(decompressed)) / float(len(compressed))
+        torch = _get_torch()
         if torch is None:
             return summary
         obj = torch.load(io.BytesIO(decompressed), map_location="cpu")
@@ -309,9 +321,64 @@ def _summarize_quantized_artifact(path: str | None) -> dict[str, object]:
     return summary
 
 
+def _flatten_numeric_payload(
+    value: object,
+    prefix: str,
+    output: dict[str, float],
+    max_items: int = 64,
+) -> None:
+    if len(output) >= max_items:
+        return
+    if isinstance(value, bool):
+        output[prefix] = 1.0 if value else 0.0
+        return
+    if isinstance(value, (int, float)):
+        output[prefix] = float(value)
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if len(output) >= max_items:
+                break
+            child_prefix = f"{prefix}_{key}" if prefix else str(key)
+            _flatten_numeric_payload(child, child_prefix, output, max_items=max_items)
+        return
+    if isinstance(value, list):
+        for idx, child in enumerate(value[:8]):
+            if len(output) >= max_items:
+                break
+            child_prefix = f"{prefix}_{idx}" if prefix else str(idx)
+            _flatten_numeric_payload(child, child_prefix, output, max_items=max_items)
+
+
+def _summarize_json_artifact(path: str | None) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "exists": 0.0,
+        "path": path or "",
+        "size_bytes": 0.0,
+        "numeric_summary": {},
+    }
+    if not path:
+        return summary
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        return summary
+    summary["exists"] = 1.0
+    summary["size_bytes"] = float(artifact_path.stat().st_size)
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            summary["top_level_keys"] = sorted(payload.keys())
+        numeric_summary: dict[str, float] = {}
+        _flatten_numeric_payload(payload, "", numeric_summary)
+        summary["numeric_summary"] = numeric_summary
+    except Exception as exc:
+        summary["load_error"] = str(exc)
+    return summary
+
+
 def build_artifact_info(src_path: str, eval_output: str, results_path: str | None = None) -> dict[str, object]:
     search_dirs = []
-    for candidate_dir in [src_path, results_path, os.getcwd()]:
+    for candidate_dir in [src_path, results_path]:
         if not candidate_dir:
             continue
         candidate_dir = os.path.abspath(candidate_dir)
@@ -344,12 +411,19 @@ def build_artifact_info(src_path: str, eval_output: str, results_path: str | Non
             "checkpoint.int8.ptz",
         ],
     )
+    structured_artifact_path = _find_latest(
+        search_dirs,
+        exact_names=[
+            "analysis_artifact.json",
+        ],
+    )
 
     return {
         "search_dirs": search_dirs,
         "parsed_eval": _parse_eval_output(eval_output),
         "float_checkpoint": _summarize_float_checkpoint(float_ckpt_path),
         "quantized_artifact": _summarize_quantized_artifact(quant_artifact_path),
+        "structured_artifact": _summarize_json_artifact(structured_artifact_path),
     }
 
 
@@ -360,6 +434,7 @@ def analyze_candidate(candidate_source: str, eval_output: str, artifact_info: di
     summary = parsed_eval.get("summary", {}) if isinstance(parsed_eval, dict) else {}
     float_ckpt = artifact_info.get("float_checkpoint", {}) if isinstance(artifact_info, dict) else {}
     quantized = artifact_info.get("quantized_artifact", {}) if isinstance(artifact_info, dict) else {}
+    structured = artifact_info.get("structured_artifact", {}) if isinstance(artifact_info, dict) else {}
 
     def metric(source: dict[str, object], key: str, default: float = 0.0) -> float:
         value = source.get(key, default)
@@ -393,6 +468,8 @@ def analyze_candidate(candidate_source: str, eval_output: str, artifact_info: di
         "analysis_float_zero_fraction": metric(float_ckpt, "zero_fraction"),
         "analysis_quantized_zero_fraction": metric(quantized, "quantized_int8_zero_fraction"),
         "analysis_checkpoint_size_mib": metric(float_ckpt, "size_bytes") / (1024.0 * 1024.0),
+        "analysis_structured_artifact_present": metric(structured, "exists"),
+        "analysis_structured_artifact_size_mib": metric(structured, "size_bytes") / (1024.0 * 1024.0),
         "analysis_eval_traceback_flag": metric(summary, "contains_traceback"),
         "analysis_eval_oom_flag": metric(summary, "contains_oom"),
         "analysis_eval_nan_flag": metric(summary, "contains_nan"),

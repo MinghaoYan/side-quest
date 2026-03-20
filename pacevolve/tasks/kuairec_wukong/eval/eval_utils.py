@@ -138,6 +138,10 @@ def evaluate_dataset(
         )
 
     logger.info(f"evaluate_dataset: Running {eval_command}")
+    eval_command = (
+        f"PACEVOLVE_ARTIFACT_DIR={shlex.quote(results_dir)} "
+        f"{eval_command}"
+    )
     process_result = _call_shell_command(
         eval_command,
         timeout=config["evaluation"]["eval_timeout"],

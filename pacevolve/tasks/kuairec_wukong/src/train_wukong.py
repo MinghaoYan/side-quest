@@ -674,6 +674,55 @@ def evaluate_model(
     }
 
 
+def save_analysis_artifacts(
+    model: nn.Module,
+    prepared: PreparedData,
+    metrics: dict[str, float | bool | str],
+) -> None:
+    artifact_dir = os.environ.get("PACEVOLVE_ARTIFACT_DIR", "").strip()
+    if not artifact_dir:
+        return
+    os.makedirs(artifact_dir, exist_ok=True)
+
+    state_dict = {
+        name: tensor.detach().cpu()
+        for name, tensor in model.state_dict().items()
+    }
+    checkpoint_path = os.path.join(artifact_dir, "final_model.pt")
+    metadata_path = os.path.join(artifact_dir, "analysis_artifact.json")
+
+    torch.save(
+        {
+            "state_dict": state_dict,
+            "model_class": model.__class__.__name__,
+            "num_items": prepared.num_items,
+            "max_history": MAX_HISTORY,
+            "metrics": metrics,
+            "train_config": {
+                "seed": SEED,
+                "num_epochs": NUM_EPOCHS,
+                "train_batch_size": TRAIN_BATCH_SIZE,
+                "eval_batch_size": EVAL_BATCH_SIZE,
+                "learning_rate": LEARNING_RATE,
+                "weight_decay": WEIGHT_DECAY,
+                "num_negatives": NUM_NEGATIVES,
+            },
+        },
+        checkpoint_path,
+    )
+
+    metadata = {
+        "checkpoint_path": checkpoint_path,
+        "model_class": model.__class__.__name__,
+        "num_items": prepared.num_items,
+        "max_history": MAX_HISTORY,
+        "param_count": int(sum(param.numel() for param in model.parameters())),
+        "metrics": metrics,
+    }
+    with open(metadata_path, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+
+
 def train_and_evaluate(dataset_csv: str) -> None:
     set_seed(SEED)
     if hasattr(torch, "set_float32_matmul_precision"):
@@ -752,6 +801,7 @@ def train_and_evaluate(dataset_csv: str) -> None:
             "num_eval_users": int(prepared.eval.target_ids.numel()),
         }
     )
+    save_analysis_artifacts(model, prepared, metrics)
     print(f"Candidate: {json.dumps(metrics, sort_keys=True)}")
 
 

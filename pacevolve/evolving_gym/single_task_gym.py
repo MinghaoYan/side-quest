@@ -318,6 +318,40 @@ class PACEvolveSingleTaskGym:
                 self.config.get("analysis", {}).get("enabled", True),
             )
         )
+        self._analysis_generate_script = bool(
+            kwargs.get(
+                "analysis_generate_script",
+                self.config.get("analysis", {}).get("generate_script_in_gym", False),
+            )
+        )
+        analysis_cfg = self.config.get("analysis", {})
+        self._analysis_diagnosis_enabled = bool(
+            kwargs.get(
+                "analysis_diagnosis_enabled",
+                analysis_cfg.get("diagnosis_enabled", True),
+            )
+        )
+        self._analysis_context_window = max(
+            1,
+            int(
+                kwargs.get(
+                    "analysis_context_window",
+                    analysis_cfg.get("context_window", 3),
+                )
+            ),
+        )
+        self._analysis_context_max_chars = max(
+            1000,
+            int(
+                kwargs.get(
+                    "analysis_context_max_chars",
+                    analysis_cfg.get("context_max_chars", 6000),
+                )
+            ),
+        )
+        self._analysis_history: Dict[int, List[Dict[str, Any]]] = {
+            island_id: [] for island_id in range(num_islands)
+        }
 
         self._per_island_count = [0] * num_islands
         self._last_crossover_idx = [0] * num_islands
@@ -349,7 +383,10 @@ class PACEvolveSingleTaskGym:
             f"islands={num_islands}, reward_type={reward_process_type}, "
             f"max_concurrent_evaluations={self.max_concurrent_evaluations}, "
             f"eval_gpu_ids={self._eval_gpu_ids}, "
-            f"post_eval_analysis={self._analysis_enabled}",
+            f"post_eval_analysis={self._analysis_enabled}, "
+            f"analysis_generate_script={self._analysis_generate_script}, "
+            f"analysis_diagnosis={self._analysis_diagnosis_enabled}, "
+            f"analysis_context_window={self._analysis_context_window}",
             flush=True,
         )
 
@@ -363,6 +400,52 @@ class PACEvolveSingleTaskGym:
             os.makedirs(step_dir, exist_ok=True)
             return os.path.join(step_dir, f"api_{ctx['sample_index']:04d}.txt")
         return self._transcript_file
+
+    def _get_record_step_dir(self) -> Optional[str]:
+        ctx = record_context.get_record_context()
+        if not (ctx and self.recording_enabled):
+            return None
+        step_dir = os.path.join(
+            ctx["record_dir"], f"step_{ctx['rollout_id']:05d}"
+        )
+        step_dir = os.path.abspath(step_dir)
+        os.makedirs(step_dir, exist_ok=True)
+        return step_dir
+
+    def _persist_sample_record_outputs(
+        self,
+        solution_source_path: Optional[str],
+        results_dir: Optional[str],
+    ) -> None:
+        ctx = record_context.get_record_context()
+        step_dir = self._get_record_step_dir()
+        if not (ctx and step_dir):
+            return
+
+        sample_index = int(ctx["sample_index"])
+        solution_path = os.path.join(step_dir, f"solution_{sample_index:04d}.py")
+        try:
+            if solution_source_path and os.path.exists(solution_source_path):
+                shutil.copyfile(solution_source_path, solution_path)
+        except Exception as e:
+            logger.warning("Failed to persist solution file %s: %s", solution_path, e)
+
+        if not results_dir or not os.path.isdir(results_dir):
+            return
+
+        try:
+            has_entries = any(os.scandir(results_dir))
+        except Exception:
+            has_entries = False
+        if not has_entries:
+            return
+
+        artifacts_dir = os.path.join(step_dir, f"artifacts_{sample_index:04d}")
+        try:
+            shutil.rmtree(artifacts_dir, ignore_errors=True)
+            shutil.copytree(results_dir, artifacts_dir)
+        except Exception as e:
+            logger.warning("Failed to persist sample artifacts to %s: %s", artifacts_dir, e)
 
     def set_record_context(self, rollout_id: int, sample_index: int) -> None:
         """Set record context for current sample (used by pacevolve_gym_rm)."""
@@ -564,6 +647,140 @@ class PACEvolveSingleTaskGym:
         """Emit diagnostics to both logger and stdout for Ray job logs."""
         logger.warning(msg)
         print(msg, flush=True)
+
+    @staticmethod
+    def _truncate_text(text: Optional[str], max_chars: int) -> str:
+        if not text:
+            return ""
+        text = str(text).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3] + "..."
+
+    def _store_analysis_history(
+        self,
+        island_id: int,
+        entry: Dict[str, Any],
+    ) -> None:
+        with self._lock:
+            history = self._analysis_history.setdefault(island_id, [])
+            history.append(entry)
+            if len(history) > self._analysis_context_window:
+                del history[:-self._analysis_context_window]
+
+    def _render_recent_analysis_context(self, island_id: int) -> str:
+        with self._lock:
+            history = list(self._analysis_history.get(island_id, []))
+        if not history:
+            return ""
+
+        lines = [
+            "### Recent Analysis Memory",
+            "Use these recent post-eval findings from this island to propose a better next experiment.",
+            "Avoid repeating ideas that the diagnosis below already identified as weak.",
+        ]
+        for idx, entry in enumerate(reversed(history[-self._analysis_context_window:]), start=1):
+            lines.append(
+                f"Memory {idx}: generation={entry.get('generation')} "
+                f"candidate_id={entry.get('candidate_id')} "
+                f"combined_score={entry.get('combined_score')}"
+            )
+            selected = self._truncate_text(entry.get("selected_hypothesis"), 240)
+            if selected:
+                lines.append(f"Selected hypothesis: {selected}")
+            exp_description = self._truncate_text(entry.get("experiment_description"), 300)
+            if exp_description:
+                lines.append(f"Experiment: {exp_description}")
+            eval_metrics = entry.get("eval_metrics")
+            if eval_metrics:
+                lines.append(
+                    "Eval metrics: "
+                    + self._truncate_text(
+                        json.dumps(eval_metrics, sort_keys=True),
+                        1000,
+                    )
+                )
+            analysis_metrics = entry.get("analysis_metrics")
+            if analysis_metrics:
+                lines.append(
+                    "Analysis metrics: "
+                    + self._truncate_text(
+                        json.dumps(analysis_metrics, sort_keys=True),
+                        1400,
+                    )
+                )
+            diagnosis = self._truncate_text(entry.get("diagnosis"), 1600)
+            if diagnosis:
+                lines.append("Diagnosis:")
+                lines.append(diagnosis)
+
+        rendered = "\n".join(lines).strip()
+        return self._truncate_text(rendered, self._analysis_context_max_chars)
+
+    def _construct_post_eval_diagnosis_prompt(
+        self,
+        selected_hypothesis: str,
+        exp_description: str,
+        candidate_code: str,
+        eval_metrics: Optional[Dict[str, Any]],
+        eval_results: List[str],
+        analysis_metrics: Optional[Dict[str, float]],
+        analysis_results: str,
+    ) -> str:
+        eval_metrics_json = json.dumps(eval_metrics or {}, indent=2, sort_keys=True)
+        analysis_metrics_json = json.dumps(analysis_metrics or {}, indent=2, sort_keys=True)
+        eval_excerpt = self._truncate_text("\n\n".join(eval_results or []), 2500)
+        analysis_excerpt = self._truncate_text(analysis_results, 2000)
+        candidate_excerpt = self._truncate_text(candidate_code, 5000)
+        return f"""
+You are diagnosing a just-evaluated candidate so the next iteration can propose a better solution.
+
+Selected hypothesis:
+{selected_hypothesis}
+
+Experiment description:
+{exp_description}
+
+Candidate implementation excerpt:
+```python
+{candidate_excerpt}
+```
+
+Parsed evaluation metrics:
+```json
+{eval_metrics_json}
+```
+
+Post-eval analysis metrics:
+```json
+{analysis_metrics_json}
+```
+
+Raw evaluation excerpt:
+```text
+{eval_excerpt}
+```
+
+Post-eval analysis excerpt:
+```text
+{analysis_excerpt}
+```
+
+Write a concise diagnosis for future improvement. Use this exact structure:
+
+Strengths:
+- ...
+
+Bottlenecks:
+- ...
+
+Next iteration opportunities:
+- ...
+- ...
+- ...
+
+Ground your claims in the metrics and observed behavior above. Focus on what the next proposal should change.
+""".strip()
 
     @staticmethod
     def _log_policy_ideas(stage: str, hypotheses: List[str], selected_num: Optional[int], exp_description: Optional[str]):
@@ -806,6 +1023,9 @@ Original policy output:
             user_text += IDEA_SELECTION_SUFFIX
         else:
             user_text = prompts.construct_mutation_prompt(parent_code, self._ablation_list)
+        recent_analysis_context = self._render_recent_analysis_context(island_id)
+        if recent_analysis_context:
+            user_text = f"{user_text.rstrip()}\n\n{recent_analysis_context}"
 
         parent_id = str(uuid.uuid4())
         best_metric = self.config["evaluation"].get("init_score", 0)
@@ -1046,6 +1266,9 @@ Original policy output:
                 parent_code, idea_id, exp_description,
                 selected_idea_text=selected_hypothesis,
             )
+            recent_analysis_context = self._render_recent_analysis_context(island_id)
+            if recent_analysis_context:
+                impl_prompt = f"{impl_prompt.rstrip()}\n\n{recent_analysis_context}"
             tpath = self._get_transcript_filename()
             transcript = Transcript(
                 log_filename=tpath,
@@ -1098,20 +1321,58 @@ Original policy output:
                     candidate_id, baseline_id,
                     loop_config=self.config["workflow_loops"]["initial_eval"],
                 )
+                print(
+                    f"[PACEvolve] Finished eval candidate_id={candidate_id} "
+                    f"success={all(trial.eval_success)}",
+                    flush=True,
+                )
                 if self._analysis_enabled:
                     try:
-                        post_eval_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
-                            prompts,
-                            trial,
-                            transcript,
+                        if (
+                            self._analysis_generate_script
+                            and not all(trial.eval_success)
+                        ):
+                            logger.info(
+                                "Skipping analyzer prompt generation for candidate %s "
+                                "because evaluation did not fully succeed.",
+                                candidate_id,
+                            )
+                        logger.info(
+                            "Starting post-eval analysis for candidate %s (generate_script=%s).",
+                            candidate_id,
+                            self._analysis_generate_script,
                         )
+                        print(
+                            f"[PACEvolve] Starting post-eval analysis candidate_id={candidate_id} "
+                            f"generate_script={self._analysis_generate_script}",
+                            flush=True,
+                        )
+                        post_eval_prompt = None
+                        if self._analysis_generate_script and all(trial.eval_success):
+                            post_eval_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
+                                prompts,
+                                trial,
+                                transcript,
+                            )
                         trial = workflow_utils.run_post_eval_analysis(
                             llm_name=self._llm_name,
                             trial=trial,
                             transcript=transcript,
                             config=config_override,
                             analysis_prompt=post_eval_prompt,
-                            max_attempts=max(1, min(self._max_attempt, 3)),
+                            max_attempts=1,
+                            allow_model_generated_script=self._analysis_generate_script,
+                        )
+                        logger.info(
+                            "Finished post-eval analysis for candidate %s (success=%s, metrics=%s).",
+                            candidate_id,
+                            trial.analysis_success,
+                            len(trial.analysis_metrics),
+                        )
+                        print(
+                            f"[PACEvolve] Finished post-eval analysis candidate_id={candidate_id} "
+                            f"success={trial.analysis_success} metrics={len(trial.analysis_metrics)}",
+                            flush=True,
                         )
                     except Exception as e:
                         logger.warning("Post-eval analysis crashed: %s", e)
@@ -1127,6 +1388,10 @@ Original policy output:
                         }
                     }
             finally:
+                self._persist_sample_record_outputs(
+                    compile_config_override.target_file_path,
+                    config_override["paths"].get("results_path"),
+                )
                 cleanup_workspace()
             transcript.hide_by_tag(tags=["initial_eval_loop"])
             if self._analysis_enabled:
@@ -1163,8 +1428,66 @@ Original policy output:
             if eval_score is None:
                 eval_score = -1.0
 
+            analysis_diagnosis = ""
+            if self._analysis_enabled and self._analysis_diagnosis_enabled:
+                try:
+                    diagnosis_prompt = self._construct_post_eval_diagnosis_prompt(
+                        selected_hypothesis=selected_hypothesis,
+                        exp_description=exp_description,
+                        candidate_code=trial.algorithm_implementation,
+                        eval_metrics=eval_metrics if isinstance(eval_metrics, dict) else None,
+                        eval_results=trial.eval_results,
+                        analysis_metrics=trial.analysis_metrics,
+                        analysis_results=trial.analysis_results,
+                    )
+                    transcript.append(ContentChunk(
+                        diagnosis_prompt, "user", tags=["post_eval_diagnosis_prompt"],
+                    ))
+                    analysis_diagnosis = llm_utils.generate_completion(
+                        self._llm_name, transcript, self.config,
+                    )
+                    transcript.append(ContentChunk(
+                        analysis_diagnosis, "model", tags=["post_eval_diagnosis_response"],
+                    ))
+                    transcript.append(ContentChunk(
+                        "Post-eval diagnosis for future iterations:\n"
+                        + analysis_diagnosis,
+                        "system",
+                        tags=["post_eval_diagnosis_summary"],
+                    ))
+                except Exception as e:
+                    logger.warning("Post-eval diagnosis failed: %s", e)
+                    analysis_diagnosis = f"Diagnosis failed: {e}"
+                finally:
+                    transcript.hide_by_tag(tags=[
+                        "post_eval_diagnosis_prompt",
+                        "post_eval_diagnosis_response",
+                    ])
+            if self._analysis_enabled:
+                self._store_analysis_history(
+                    island_id,
+                    {
+                        "generation": int(parent_program.generation + 1),
+                        "candidate_id": int(candidate_id),
+                        "combined_score": float(eval_score),
+                        "selected_hypothesis": selected_hypothesis,
+                        "experiment_description": exp_description,
+                        "eval_metrics": eval_metrics if isinstance(eval_metrics, dict) else {},
+                        "analysis_metrics": dict(trial.analysis_metrics or {}),
+                        "analysis_success": bool(trial.analysis_success),
+                        "diagnosis": analysis_diagnosis,
+                    },
+                )
+                if analysis_artifacts is not None:
+                    analysis_artifacts.setdefault("analysis", {})
+                    analysis_artifacts["analysis"]["diagnosis"] = analysis_diagnosis
+
             # ----- Step 7: Summarisation (API model) -----
             summary_prompt = prompts.SUMMARIZE_EVAL_PROMPT
+            print(
+                f"[PACEvolve] Starting eval summary candidate_id={candidate_id}",
+                flush=True,
+            )
             transcript.append(ContentChunk(
                 summary_prompt, "user", tags=["final_summary_request"],
             ))
@@ -1181,6 +1504,10 @@ Original policy output:
                     break
                 else:
                     logger.warning("Summarisation attempt %d failed.", attempt_idx + 1)
+            print(
+                f"[PACEvolve] Finished eval summary candidate_id={candidate_id} bullets={len(bullets)}",
+                flush=True,
+            )
 
             self._ablation_list.extend(bullets)
 

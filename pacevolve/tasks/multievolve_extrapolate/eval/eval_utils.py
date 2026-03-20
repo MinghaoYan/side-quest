@@ -132,7 +132,7 @@ def evaluate_dataset(
         )
 
     process_result = _call_shell_command(
-        eval_command,
+        f"PACEVOLVE_ARTIFACT_DIR={shlex.quote(results_dir)} {eval_command}",
         timeout=config["evaluation"]["eval_timeout"],
         max_retries=config["evaluation"]["eval_max_retries"],
     )

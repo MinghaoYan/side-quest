@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
@@ -249,6 +250,54 @@ def evaluate_dataset_predictions(y_true: np.ndarray, y_pred: np.ndarray) -> dict
     }
 
 
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    return str(value)
+
+
+def _capture_candidate_artifact(candidate_module: Any) -> dict[str, Any] | None:
+    getter = getattr(candidate_module, "get_analysis_artifact", None)
+    artifact = None
+    if callable(getter):
+        try:
+            artifact = getter()
+        except Exception as exc:
+            artifact = {"artifact_error": str(exc)}
+    elif hasattr(candidate_module, "_PACEVOLVE_LAST_ANALYSIS_ARTIFACT"):
+        artifact = getattr(candidate_module, "_PACEVOLVE_LAST_ANALYSIS_ARTIFACT")
+    if artifact is None:
+        return None
+    safe = _json_safe(artifact)
+    return safe if isinstance(safe, dict) else {"value": safe}
+
+
+def _save_analysis_artifact(
+    artifact_dir: str,
+    metrics: dict[str, Any],
+    dataset_artifacts: list[dict[str, Any]],
+) -> None:
+    if not artifact_dir:
+        return
+    output_dir = Path(artifact_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "task": "multievolve_extrapolate",
+        "overall_metrics": _json_safe(metrics),
+        "datasets": _json_safe(dataset_artifacts),
+    }
+    with (output_dir / "analysis_artifact.json").open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+
+
 def evaluate_predictions(
     benchmark_payloads: list[dict[str, Any]],
     candidate_module: Any,
@@ -257,6 +306,7 @@ def evaluate_predictions(
         raise AttributeError("Candidate is missing `fit_and_predict(train_df, test_df, dataset_context)`.")
 
     dataset_metrics = []
+    dataset_artifacts = []
     pearsons = []
     precisions = []
 
@@ -273,6 +323,20 @@ def evaluate_predictions(
         pearsons.append(metrics["pearson_r"])
         precisions.append(metrics["precision_top5"])
         dataset_metrics.append(metrics)
+        dataset_artifacts.append(
+            {
+                "dataset_id": dataset_context["DMS_id"],
+                "metrics": dict(metrics),
+                "prediction_summary": {
+                    "num_predictions": int(len(y_pred)),
+                    "prediction_mean": float(np.mean(y_pred)) if len(y_pred) else 0.0,
+                    "prediction_std": float(np.std(y_pred)) if len(y_pred) else 0.0,
+                    "prediction_min": float(np.min(y_pred)) if len(y_pred) else 0.0,
+                    "prediction_max": float(np.max(y_pred)) if len(y_pred) else 0.0,
+                },
+                "candidate_artifact": _capture_candidate_artifact(candidate_module),
+            }
+        )
 
     mean_pearson = float(np.mean(pearsons)) if pearsons else 0.0
     mean_precision_top5 = float(np.mean(precisions)) if precisions else 0.0
@@ -280,7 +344,7 @@ def evaluate_predictions(
     benchmark_protocol = None
     if benchmark_payloads:
         benchmark_protocol = benchmark_payloads[0].get("metadata", {}).get("benchmark_protocol")
-    return {
+    result = {
         "combined_score": combined_score,
         "mean_pearson_r": mean_pearson,
         "mean_precision_top5": mean_precision_top5,
@@ -288,3 +352,9 @@ def evaluate_predictions(
         "benchmark_protocol": benchmark_protocol,
         "datasets": dataset_metrics,
     }
+    _save_analysis_artifact(
+        os.environ.get("PACEVOLVE_ARTIFACT_DIR", "").strip(),
+        result,
+        dataset_artifacts,
+    )
+    return result

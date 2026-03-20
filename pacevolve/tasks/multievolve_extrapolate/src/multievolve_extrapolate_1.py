@@ -12,6 +12,8 @@ import pandas as pd
 from scipy import sparse
 from sklearn.linear_model import Ridge
 
+_PACEVOLVE_LAST_ANALYSIS_ARTIFACT: Dict[str, float] = {}
+
 
 def _parse_mutation(mutation: str) -> List[str]:
     text = str(mutation).strip()
@@ -99,8 +101,21 @@ class SparseMutationRidge:
 
 def fit_and_predict(train_df: pd.DataFrame, test_df: pd.DataFrame, dataset_context: dict) -> np.ndarray:
     del dataset_context
+    global _PACEVOLVE_LAST_ANALYSIS_ARTIFACT
     model = SparseMutationRidge(alpha=2.0, pair_scale=0.75)
     model.fit(train_df)
+    coef = np.asarray(model.model.coef_, dtype=float)
+    _PACEVOLVE_LAST_ANALYSIS_ARTIFACT = {
+        "model_type": "SparseMutationRidge",
+        "alpha": float(model.alpha),
+        "pair_scale": float(model.pair_scale),
+        "num_single_features": float(len(model.single_index)),
+        "num_pair_features": float(len(model.pair_index)),
+        "coef_l2_norm": float(np.linalg.norm(coef)),
+        "coef_max_abs": float(np.max(np.abs(coef))) if coef.size else 0.0,
+        "coef_mean_abs": float(np.mean(np.abs(coef))) if coef.size else 0.0,
+        "intercept": float(np.asarray(model.model.intercept_).reshape(-1)[0]),
+    }
     return model.predict(test_df)
 
 # RegexTagCustomPruningAlgorithmEnd
