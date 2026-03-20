@@ -420,12 +420,16 @@ def build_artifact_info(src_path: str, eval_output: str, results_path: str | Non
         ],
     )
 
+    structured_artifact = _summarize_json_artifact(structured_artifact_path)
+    task_artifact = structured_artifact.get("payload", {}) if isinstance(structured_artifact, dict) else {}
+
     return {
         "search_dirs": search_dirs,
         "parsed_eval": _parse_eval_output(eval_output),
         "float_checkpoint": _summarize_float_checkpoint(float_ckpt_path),
         "quantized_artifact": _summarize_quantized_artifact(quant_artifact_path),
-        "structured_artifact": _summarize_json_artifact(structured_artifact_path),
+        "structured_artifact": structured_artifact,
+        "task_artifact": task_artifact,
     }
 
 

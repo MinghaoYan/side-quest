@@ -1410,6 +1410,7 @@ Original policy output:
                                 prompts,
                                 trial,
                                 transcript,
+                                config_override,
                             )
                         trial = workflow_utils.run_post_eval_analysis(
                             llm_name=self._llm_name,

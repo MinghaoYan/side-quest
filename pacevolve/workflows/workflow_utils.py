@@ -65,6 +65,45 @@ def _truncate_error_message(message: str, max_chars: int = 1200) -> str:
   return message[: max_chars - 3] + "..."
 
 
+def _truncate_text(text: str, max_chars: int) -> str:
+  if text is None:
+    return ""
+  if len(text) <= max_chars:
+    return text
+  return text[: max_chars - 3] + "..."
+
+
+def _load_latest_analysis_artifact_payload(results_path: str | None):
+  if not results_path:
+    return None
+  results_path = os.path.abspath(os.path.expanduser(results_path))
+  if not os.path.isdir(results_path):
+    return None
+
+  latest_path = None
+  latest_mtime = None
+  for root, _dirs, files in os.walk(results_path):
+    if "analysis_artifact.json" not in files:
+      continue
+    candidate = os.path.join(root, "analysis_artifact.json")
+    try:
+      mtime = os.path.getmtime(candidate)
+    except OSError:
+      continue
+    if latest_mtime is None or mtime > latest_mtime:
+      latest_path = candidate
+      latest_mtime = mtime
+
+  if not latest_path:
+    return None
+
+  try:
+    with open(latest_path, "r", encoding="utf-8") as handle:
+      return json.load(handle)
+  except Exception:
+    return None
+
+
 def _summarize_compile_error(process: CompletedProcess, config: dict) -> str:
   summ_config = config['summarization']
   error_summary_lines = []
@@ -449,6 +488,10 @@ Requirements:
 - Keep the code deterministic, cheap, and robust to missing artifacts or partial eval output.
 - Favor experiment-diagnostic metrics over superficial code-shape metrics.
 - Choose metrics that will help the next iteration diagnose bottlenecks and propose a better candidate.
+- The raw task-produced artifact payload is available directly at `artifact_info["task_artifact"]` when present.
+- The same raw payload is also mirrored at `artifact_info["structured_artifact"]["payload"]`.
+- Do not assume a made-up key like `last_analysis_artifact` exists unless you explicitly check for it.
+- If the artifact contains per-dataset entries, preserve that structure in your reasoning instead of collapsing them into a single pseudo-artifact.
 - Prioritize signals such as trajectory smoothness, training/validation improvement, runtime efficiency, artifact size headroom, checkpoint integrity, parameter-health summaries, and failure signatures.
 - Output exactly one markdown Python code block.
 - Define `analyze_candidate(candidate_source: str, eval_output: str, artifact_info: dict[str, object])` exactly once.
@@ -459,10 +502,47 @@ def _compose_post_eval_analysis_prompt(base_prompt: str) -> str:
   return f"{base_prompt.rstrip()}\n\n{_post_eval_analysis_prompt_requirements()}"
 
 
+def _augment_post_eval_analysis_prompt(
+  base_prompt: str,
+  trial: AlgorithmTrial,
+  config: dict | None,
+) -> str:
+  if config is None:
+    return base_prompt
+
+  results_path = config.get("paths", {}).get("results_path")
+  raw_artifact_payload = _load_latest_analysis_artifact_payload(results_path)
+  eval_excerpt = _truncate_text(
+    "\n\n".join([text for text in trial.eval_results if text]),
+    4000,
+  )
+
+  sections = [base_prompt.rstrip(), "Runtime context from this exact evaluation:"]
+  if eval_excerpt:
+    sections.extend([
+      "Evaluation output excerpt:",
+      "```text",
+      eval_excerpt,
+      "```",
+    ])
+  if raw_artifact_payload is not None:
+    sections.extend([
+      "Raw task artifact payload available to the analyzer at `artifact_info[\"task_artifact\"]`:",
+      "```json",
+      _truncate_text(json.dumps(raw_artifact_payload, indent=2, sort_keys=True), 7000),
+      "```",
+      "Use this real schema directly instead of inventing wrapper keys.",
+    ])
+  else:
+    sections.append("Raw task artifact payload: unavailable for this run.")
+  return "\n\n".join(sections)
+
+
 def resolve_post_eval_analysis_prompt(
   prompts_module,
   trial: AlgorithmTrial,
   transcript: Transcript,
+  config: dict | None = None,
 ) -> str:
   """Build the final post-eval analysis prompt used by all execution modes."""
   base_prompt = None
@@ -487,7 +567,11 @@ def resolve_post_eval_analysis_prompt(
     base_prompt = getattr(prompts_module, "POST_EVAL_ANALYSIS_PROMPT")
   if not base_prompt:
     base_prompt = _default_post_eval_analysis_prompt(trial.algorithm_implementation)
-  return _compose_post_eval_analysis_prompt(base_prompt)
+  return _augment_post_eval_analysis_prompt(
+    _compose_post_eval_analysis_prompt(base_prompt),
+    trial,
+    config,
+  )
 
 
 def run_post_eval_analysis(

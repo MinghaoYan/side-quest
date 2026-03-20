@@ -234,7 +234,7 @@ def _run_island_iteration(
         if bool(config.get("analysis", {}).get("enabled", True)):
             try:
                 analysis_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
-                    prompts, trial, transcript
+                    prompts, trial, transcript, config
                 )
                 trial = workflow_utils.run_post_eval_analysis(
                     llm_name=llm_name,
