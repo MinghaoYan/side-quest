@@ -733,6 +733,9 @@ class PACEvolveSingleTaskGym:
                 )
             analysis_metrics = entry.get("analysis_metrics")
             structured_artifact = entry.get("structured_artifact")
+            analysis_mode = entry.get("analysis_mode")
+            if analysis_mode:
+                lines.append(f"Analysis mode: {analysis_mode}")
             if structured_artifact:
                 lines.append(
                     "Structured artifact: "
@@ -767,6 +770,7 @@ class PACEvolveSingleTaskGym:
         analysis_metrics: Optional[Dict[str, float]],
         analysis_results: str,
         structured_artifact: Optional[Dict[str, Any]],
+        analysis_mode: str,
     ) -> str:
         eval_metrics_json = json.dumps(eval_metrics or {}, indent=2, sort_keys=True)
         analysis_metrics_json = json.dumps(analysis_metrics or {}, indent=2, sort_keys=True)
@@ -805,6 +809,8 @@ Post-eval analysis metrics:
 ```json
 {analysis_metrics_json}
 ```
+
+Analysis mode: {analysis_mode}
 
 Raw evaluation excerpt:
 ```text
@@ -1436,6 +1442,8 @@ Original policy output:
                         "analysis": {
                             "success": trial.analysis_success,
                             "attempts": trial.analysis_attempts,
+                            "mode": trial.analysis_mode,
+                            "script": trial.analysis_script,
                             "metrics": dict(trial.analysis_metrics),
                             "structured_artifact": structured_analysis_artifact,
                             "errors": list(trial.analysis_errors),
@@ -1495,6 +1503,7 @@ Original policy output:
                         analysis_metrics=trial.analysis_metrics,
                         analysis_results=trial.analysis_results,
                         structured_artifact=structured_analysis_artifact,
+                        analysis_mode=trial.analysis_mode,
                     )
                     transcript.append(ContentChunk(
                         diagnosis_prompt, "user", tags=["post_eval_diagnosis_prompt"],
@@ -1530,6 +1539,7 @@ Original policy output:
                         "experiment_description": exp_description,
                         "eval_metrics": eval_metrics if isinstance(eval_metrics, dict) else {},
                         "analysis_metrics": dict(trial.analysis_metrics or {}),
+                        "analysis_mode": trial.analysis_mode,
                         "structured_artifact": structured_analysis_artifact,
                         "analysis_success": bool(trial.analysis_success),
                         "diagnosis": analysis_diagnosis,

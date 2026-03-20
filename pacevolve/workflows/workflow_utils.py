@@ -53,6 +53,8 @@ class AlgorithmTrial:
   analysis_attempts: int = 0
   analysis_errors: list[str] = dataclasses.field(default_factory=list)
   analysis_metrics: dict[str, float] = dataclasses.field(default_factory=dict)
+  analysis_mode: str = "disabled"
+  analysis_script: str = ""
 
 
 def _truncate_error_message(message: str, max_chars: int = 1200) -> str:
@@ -499,6 +501,7 @@ def run_post_eval_analysis(
 ) -> AlgorithmTrial:
   """Generate and run a post-eval analyzer script for extra metrics."""
   trial = copy.deepcopy(trial)
+  trial.analysis_mode = "fallback_only"
   analysis_config = config.get("analysis", {})
   run_on_failed_eval = bool(analysis_config.get("run_on_failed_eval", False))
   if trial.eval_success and not all(trial.eval_success) and not run_on_failed_eval:
@@ -550,6 +553,7 @@ def run_post_eval_analysis(
 
   generated_code = None
   if allow_model_generated_script:
+    trial.analysis_mode = "fallback_after_generation_failure"
     logger.info(
       "run_post_eval_analysis: Generating analyzer script via LLM (max_attempts=%s).",
       max_attempts,
@@ -582,6 +586,8 @@ def run_post_eval_analysis(
         )
         generated_code = None
         continue
+      trial.analysis_script = generated_code
+      trial.analysis_mode = "generated"
       break
   else:
     logger.info(
@@ -675,15 +681,18 @@ def run_post_eval_analysis(
     )
     return trial
 
-  result_text = "\n".join([
+  process_output = "\n".join([
     process_result.stdout.strip(),
     process_result.stderr.strip(),
   ]).strip()
-  trial.analysis_results = result_text
+  trial.analysis_results = (
+    f"AnalyzerMode: {trial.analysis_mode}\n"
+    f"{process_output}"
+  ).strip()
   trial.analysis_success = (process_result.returncode == 0)
   if not trial.analysis_success:
-    trial.analysis_errors.append(_truncate_error_message(result_text, max_chars=800))
-  trial.analysis_metrics = _extract_analysis_metrics(result_text)
+    trial.analysis_errors.append(_truncate_error_message(trial.analysis_results, max_chars=800))
+  trial.analysis_metrics = _extract_analysis_metrics(process_output)
 
   if trial.analysis_success:
     metrics_text = json.dumps(trial.analysis_metrics, sort_keys=True)
@@ -693,7 +702,7 @@ def run_post_eval_analysis(
     )
     transcript.append(
       ContentChunk(
-        f"Post-eval analysis metrics:\n```json\n{metrics_text}\n```",
+        f"Post-eval analysis ({trial.analysis_mode}) metrics:\n```json\n{metrics_text}\n```",
         "system",
         tags=[summary_tag],
       )

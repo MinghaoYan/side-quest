@@ -356,6 +356,7 @@ def _summarize_json_artifact(path: str | None) -> dict[str, object]:
         "path": path or "",
         "size_bytes": 0.0,
         "numeric_summary": {},
+        "payload": {},
     }
     if not path:
         return summary
@@ -366,6 +367,7 @@ def _summarize_json_artifact(path: str | None) -> dict[str, object]:
     summary["size_bytes"] = float(artifact_path.stat().st_size)
     try:
         payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+        summary["payload"] = payload
         if isinstance(payload, dict):
             summary["top_level_keys"] = sorted(payload.keys())
         numeric_summary: dict[str, float] = {}
