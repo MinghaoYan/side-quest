@@ -27,7 +27,7 @@ While completing your task, you MUST:
 - Your code will replace the content between RegexTagCustomPruningAlgorithmStart and RegexTagCustomPruningAlgorithmEnd in train_kuairec.py.
 - You MUST define `build_model(num_items: int, max_history: int)`.
 - `build_model(...)` MUST return a PyTorch module with methods:
-  - `encode_users(history_ids, history_timestamps, history_lengths)`
+  - `encode_users(history_ids, history_timestamps, history_lengths, target_timestamps)`
   - `score_all_items(user_embeddings)`
 - The fixed trainer outside the editable block controls dataset choice, epochs, optimizer, batch size, sampled-softmax training, and evaluation.
 - Do NOT add network calls, file reads beyond the dataset already used by the trainer, or heavyweight external dependencies.
@@ -38,20 +38,20 @@ While completing your task, you MUST:
 BACKGROUND = """
 ### Background on the KuaRec FuXi-linear benchmark
 
-This task adapts a FuXi-linear-style sequential encoder to KuaRec, a Kuaishou dataset.
+This task adapts a KuaRec sequential recommender toward the released FuXi-Linear setup.
 
 The benchmark keeps the experimental scaffold fixed:
 
 - Dataset: KuaRec only
 - Epochs: fixed at 16
 - Objective: fixed sampled-softmax next-item prediction
-- Evaluation: fixed full-catalog ranking with NDCG@10, HR@10, and MRR
-- Runtime target: around 5 minutes on 1xA100
+- Evaluation: fixed full-catalog ranking with NDCG@10, NDCG@50, HR@10, HR@50, and MRR
+- Runtime budget: fixed wall-clock budget with a relaxed 2400s task timeout
 
 The evolvable surface is intentionally narrower:
 
 1. **Feature design**
-   Turn a user history into sequence tokens with item, time-gap, recency, and position structure.
+   Turn a user history into sequence tokens with item, timestamp, and position structure.
 
 2. **Model architecture**
    Use FuXi-linear-style sequence mixing, temporal channels, positional channels, pooling, and item-scoring logic to produce better user representations.
@@ -242,7 +242,7 @@ SUMMARIZE_EVAL_PROMPT = """
 Provide a concise summary of this experiment. First write one short paragraph. Then provide exactly 1 bullet point beginning with `-`.
 
 In the bullet, include:
-- Results: combined_score, ndcg@10, hr@10, mrr, wall_time_sec
+- Results: combined_score, ndcg@10, ndcg@50, hr@10, hr@50, mrr, wall_time_sec
 - The main modeling or feature-design change
 """
 
@@ -252,7 +252,7 @@ The evaluator reports held-out next-item ranking quality on KuaRec.
 
 ### Understanding metrics
 - `combined_score` is the optimization target and should be maximized.
-- Higher `ndcg@10`, `hr@10`, and `mrr` are better.
+- Higher `ndcg@10`, `ndcg@50`, `hr@10`, `hr@50`, and `mrr` are better.
 - `within_budget` must remain true.
 """
 

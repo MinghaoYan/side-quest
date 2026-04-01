@@ -1,6 +1,6 @@
 # KuaRec FuXi-Linear Task
 
-PACEvolve task for evolving a FuXi-linear-style sequential recommender on the KuaRec dataset from Kuaishou.
+PACEvolve task for evolving a KuaRec sequential recommender that is much closer to the released FuXi-Linear setup.
 
 ## Task Goal
 
@@ -9,16 +9,16 @@ Maximize held-out next-item ranking quality on `kuairec` while keeping:
 - Dataset fixed: KuaRec only
 - Training epochs fixed: 16 epochs
 - Training loop fixed: sampled-softmax training and full-catalog evaluation
-- Runtime budget fixed: intended to fit roughly within 5 minutes on 1xA100
+- Runtime budget fixed: relaxed wall-clock budget with a 2400-second eval timeout
 
-The evolvable surface is the sequence feature construction plus the FuXi-linear-style user encoder inside [`src/train_kuairec.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec/src/train_kuairec.py).
+The evolvable surface is the sequence encoder and scoring logic inside [`src/train_kuairec.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec/src/train_kuairec.py).
 
 ## Why This Task Exists
 
-`fuxi-linear` already contains the KuaRec preprocessing path and a strong sequential recommendation setup. This task now uses that family directly while keeping the same fixed-budget PACEvolve scaffold:
+`fuxi-linear` already contains the KuaRec preprocessing path and the released paper configs. This task now tracks that family much more closely while keeping the fixed PACEvolve scaffold:
 
-- Convert sequential KuaRec histories into item, time-gap, recency, and position-aware token features
-- Encode those tokens with a FuXi-linear-style sequence mixer
+- Convert sequential KuaRec histories into item, timestamp, and position-aware token features
+- Encode those tokens with a FuXi-Linear-aligned multi-channel sequence mixer
 - Train against a fixed next-item objective with fixed epochs and fixed data
 
 That makes the benchmark a clean architecture-and-feature-design problem instead of a hyperparameter search problem.
@@ -88,34 +88,40 @@ python pacevolve/tasks/kuairec/eval/evaluate_kuairec.py \
 
 The current baseline model in [`src/train_kuairec.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec/src/train_kuairec.py) is now a FuXi-linear-style sequence encoder with:
 
-- shared item embeddings
-- learned time-gap and recency embeddings
-- stacked linear-mixing sequence blocks with temporal and positional channels
-- a fixed next-item scoring head
+- max sequence length `1024`
+- embedding size `128`
+- `4` FuXi-Linear-style blocks
+- retention heads `4` with `dqk = 32` and `dv = 32`
+- temporal heads `8`
+- positional channel dimension `32`
+- chunk size `128`
+- dropout `0.5`
+- L2-normalized dot-product scoring with temperature `0.05`
 
-On KuaRec, this baseline is much smaller than the earlier oversized prototype and is intended to be a cleaner starting point for evolution.
+This keeps the task much closer to the paper and released `fuxi-linear/configs/kuairec/linear-4b-l1024-b64x2.gin`, while still preserving the fixed 16-epoch PACEvolve scaffold.
 
-## Why 5 Minutes Is a Reasonable Estimate
+Using the current remapped KuaRec catalog size of roughly `9.96k` items, the baseline is about `2.46M` parameters, or about `9.4 MB` in FP32 weights.
 
-The 5-minute target is an engineering estimate from the fixed scaffold rather than a paper-verified timing number. It is reasonable because:
+## Runtime Note
 
-- The baseline is now a mid-sized FuXi-linear-style sequence model rather than the earlier oversized field-interaction prototype.
-- Training uses one fixed next-item target per user for train and eval, not full autoregressive supervision over every position.
-- Training uses sampled-softmax with `127` negatives instead of full-catalog loss.
-- Evaluation is full-catalog, but `kuairec` is only about `9.96k` items after the standard remapping used here.
-- Batch sizes are large (`1024` train, `2048` eval), which is comfortable for a model this small on an A100.
-- The task caches parsed tensors to `sasrec_format.csv.kuairec_cache.pt`, so repeated evolutionary runs do not keep reparsing the CSV.
+This is no longer a 5-minute setup. The task now uses a much longer history length and a model much closer to the released FuXi-Linear KuaRec recipe, so the runtime budget has been relaxed accordingly.
 
-In other words, the expensive part is mostly dense matrix math over a small model and a modest item catalog, which is exactly the kind of workload an A100 handles well.
+- Sequence length is now `1024` instead of a short-sequence proxy.
+- The model is closer to the released KuaRec configuration from `fuxi-linear`.
+- Training still uses one fixed next-item target per user, so it remains cheaper than the paper's full autoregressive supervision.
+- Evaluation is still full-catalog over roughly `9.96k` remapped items.
+- The task caches parsed tensors to `sasrec_format.csv.kuairec_cache_v2.pt`, so repeated runs do not keep reparsing the CSV.
 
-I have only smoke-tested the task on a synthetic dataset in this repo session, not run a real A100 timing pass on full KuaRec, so this should be read as a strong estimate rather than a confirmed benchmark number.
+I have not run a full real-KuaRec timing pass in this repo session, so treat the timeout as an engineering budget rather than a benchmarked claim.
 
 ## Metrics
 
 The candidate script prints a JSON payload with:
 
 - `ndcg@10`
+- `ndcg@50`
 - `hr@10`
+- `hr@50`
 - `mrr`
 - `combined_score`
 - `wall_time_sec`
@@ -134,7 +140,9 @@ Non-finite runs are treated as invalid:
 ### What These Metrics Mean
 
 - `ndcg@10`: Normalized Discounted Cumulative Gain at 10. It gives credit when the true next item is ranked near the top, with more reward for rank 1 than rank 10.
+- `ndcg@50`: The same ranking-quality metric over the top-50 list.
 - `hr@10`: Hit Rate at 10. It is `1` if the true next item appears anywhere in the top-10 list and `0` otherwise, then averaged over users.
+- `hr@50`: The same hit-rate metric over the top-50 list.
 - `mrr`: Mean Reciprocal Rank. It uses `1 / rank` of the true next item, so rank 1 gives `1.0`, rank 2 gives `0.5`, rank 10 gives `0.1`, and lower ranks contribute less.
 
 ### Is The Arithmetic Mean Reasonable?

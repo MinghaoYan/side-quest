@@ -30,7 +30,7 @@ compilation:
   edit_end_tag: "RegexTagCustomPruningAlgorithmEnd"
 
 evaluation:
-  eval_timeout: 420
+  eval_timeout: 2400
   eval_max_retries: 1
   eval_script_name: "evaluate_kuairec.py"
   max_parallel_evals: 1
