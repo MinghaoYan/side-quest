@@ -41,6 +41,10 @@ evaluation:
   eval_configs:
     - dataset: "multievolve_public_lite"
 
+analysis:
+  enabled: false
+  diagnosis_enabled: false
+
 database:
   num_islands: 1
   tournament_size: 2

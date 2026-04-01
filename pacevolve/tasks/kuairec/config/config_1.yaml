@@ -40,6 +40,10 @@ evaluation:
   eval_configs:
     - dataset: "kuairec"
 
+analysis:
+  enabled: false
+  diagnosis_enabled: false
+
 database:
   num_islands: 1
   tournament_size: 2
