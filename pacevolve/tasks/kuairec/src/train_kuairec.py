@@ -29,6 +29,12 @@ WEIGHT_DECAY = 0.0
 NUM_NEGATIVES = 128
 MAX_WALL_TIME_SECONDS = 2400.0
 TEMPERATURE = 0.05
+EDIT_START_TAG = "# RegexTagCustomPruningAlgorithmStart"
+EDIT_END_TAG = "# RegexTagCustomPruningAlgorithmEnd"
+FORBIDDEN_NAME_REFERENCES = ("target_ids", "target_timestamps", "sys")
+FORBIDDEN_CALL_NAMES = ("eval", "exec", "globals", "locals", "vars", "__import__")
+FORBIDDEN_IMPORT_ROOTS = ("inspect",)
+FORBIDDEN_ATTRIBUTE_NAMES = ("_getframe", "f_back", "f_locals", "f_globals")
 
 
 def configure_csv_field_limit() -> None:
@@ -76,7 +82,6 @@ class PreparedSplit:
     history_timestamps: Tensor
     history_lengths: Tensor
     target_ids: Tensor
-    target_timestamps: Tensor
 
 
 @dataclass
@@ -92,7 +97,6 @@ class SequenceDataset(Dataset):
         self.history_timestamps = split.history_timestamps
         self.history_lengths = split.history_lengths
         self.target_ids = split.target_ids
-        self.target_timestamps = split.target_timestamps
 
     def __len__(self) -> int:
         return int(self.target_ids.numel())
@@ -103,7 +107,6 @@ class SequenceDataset(Dataset):
             "history_timestamps": self.history_timestamps[index],
             "history_lengths": self.history_lengths[index],
             "target_ids": self.target_ids[index],
-            "target_timestamps": self.target_timestamps[index],
         }
 
 
@@ -116,7 +119,6 @@ def _build_split(
     history_timestamps = []
     history_lengths = []
     target_ids = []
-    target_timestamps = []
 
     for seq_ids, seq_ts in zip(sequences, timestamps):
         if len(seq_ids) - drop_last_events < 2:
@@ -127,7 +129,6 @@ def _build_split(
             continue
 
         target_id = usable_ids[-1]
-        target_ts = usable_ts[-1]
         history_id = usable_ids[:-1]
         history_ts = usable_ts[:-1]
         history_len = min(len(history_id), MAX_HISTORY)
@@ -136,19 +137,17 @@ def _build_split(
         history_timestamps.append(right_pad(history_ts, MAX_HISTORY))
         history_lengths.append(history_len)
         target_ids.append(target_id)
-        target_timestamps.append(target_ts)
 
     return PreparedSplit(
         history_ids=torch.tensor(history_ids, dtype=torch.long),
         history_timestamps=torch.tensor(history_timestamps, dtype=torch.long),
         history_lengths=torch.tensor(history_lengths, dtype=torch.long),
         target_ids=torch.tensor(target_ids, dtype=torch.long),
-        target_timestamps=torch.tensor(target_timestamps, dtype=torch.long),
     )
 
 
 def load_or_prepare_data(dataset_csv: str) -> PreparedData:
-    cache_path = f"{dataset_csv}.kuairec_cache_v2.pt"
+    cache_path = f"{dataset_csv}.kuairec_cache_v3.pt"
     if os.path.exists(cache_path):
         cached = torch.load(cache_path, map_location="cpu")
         return PreparedData(
@@ -185,14 +184,12 @@ def load_or_prepare_data(dataset_csv: str) -> PreparedData:
                 "history_timestamps": prepared.train.history_timestamps,
                 "history_lengths": prepared.train.history_lengths,
                 "target_ids": prepared.train.target_ids,
-                "target_timestamps": prepared.train.target_timestamps,
             },
             "eval": {
                 "history_ids": prepared.eval.history_ids,
                 "history_timestamps": prepared.eval.history_timestamps,
                 "history_lengths": prepared.eval.history_lengths,
                 "target_ids": prepared.eval.target_ids,
-                "target_timestamps": prepared.eval.target_timestamps,
             },
             "num_items": prepared.num_items,
         },
@@ -207,7 +204,6 @@ class BaseSequenceRecommender(nn.Module):
         history_ids: Tensor,
         history_timestamps: Tensor,
         history_lengths: Tensor,
-        target_timestamps: Tensor,
     ) -> Tensor:
         raise NotImplementedError
 
@@ -237,6 +233,208 @@ def score_training_candidates(
         return score_candidates(user_embeddings, candidate_ids)
     all_scores = model.score_all_items(user_embeddings)
     return all_scores.gather(1, candidate_ids - 1)
+
+
+class RewardHackGuardVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.violations: list[str] = []
+
+    def _record(self, message: str) -> None:
+        if message not in self.violations:
+            self.violations.append(message)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            root = alias.name.split(".", 1)[0]
+            if root in FORBIDDEN_IMPORT_ROOTS:
+                self._record(f"forbidden import `{root}`")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        root = (node.module or "").split(".", 1)[0]
+        if root in FORBIDDEN_IMPORT_ROOTS:
+            self._record(f"forbidden import `{root}`")
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in FORBIDDEN_NAME_REFERENCES:
+            self._record(f"forbidden name reference `{node.id}`")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in FORBIDDEN_ATTRIBUTE_NAMES:
+            self._record(f"forbidden reflective attribute `{node.attr}`")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in FORBIDDEN_CALL_NAMES:
+            self._record(f"forbidden reflective call `{func.id}(...)`")
+        if isinstance(func, ast.Attribute) and func.attr in FORBIDDEN_ATTRIBUTE_NAMES:
+            self._record(f"forbidden reflective call `.{func.attr}(...)`")
+        self.generic_visit(node)
+
+
+def extract_editable_block(source_text: str) -> str:
+    if EDIT_START_TAG not in source_text or EDIT_END_TAG not in source_text:
+        raise ValueError("Could not locate editable block tags in candidate source.")
+    return source_text.split(EDIT_START_TAG, 1)[1].split(EDIT_END_TAG, 1)[0]
+
+
+def run_reward_hacking_guardrails(source_text: str) -> tuple[bool, str]:
+    try:
+        editable_block = extract_editable_block(source_text)
+        tree = ast.parse(editable_block)
+    except Exception as exc:
+        return False, f"Reward-hacking guardrail could not parse the editable block: {exc}"
+
+    visitor = RewardHackGuardVisitor()
+    visitor.visit(tree)
+    if visitor.violations:
+        joined = "; ".join(visitor.violations)
+        return (
+            False,
+            "Reward-hacking guardrail rejected the candidate: "
+            f"{joined}. The editable block must not access future labels, "
+            "future timestamps, or Python frame/introspection primitives.",
+        )
+    return True, "passed"
+
+
+def load_current_source_text() -> str:
+    with open(__file__, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def build_probe_decoys(
+    history_timestamps: Tensor,
+    history_lengths: Tensor,
+    observed_target_ids: Tensor,
+    max_item_id: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    batch_indices = torch.arange(history_lengths.size(0), device=history_lengths.device)
+    last_indices = history_lengths.clamp_min(1) - 1
+    last_timestamps = history_timestamps[batch_indices, last_indices]
+
+    decoy_target_ids_a = observed_target_ids.clone()
+    decoy_target_ids_b = torch.remainder(observed_target_ids, max_item_id) + 1
+    same_mask = decoy_target_ids_b.eq(decoy_target_ids_a)
+    if same_mask.any():
+        decoy_target_ids_b[same_mask] = torch.remainder(decoy_target_ids_b[same_mask], max_item_id) + 1
+
+    decoy_target_timestamps_a = last_timestamps + 1
+    decoy_target_timestamps_b = last_timestamps + 1_000_003
+    return (
+        decoy_target_ids_a,
+        decoy_target_ids_b,
+        decoy_target_timestamps_a,
+        decoy_target_timestamps_b,
+    )
+
+
+def _encode_with_decoy_locals(
+    model: BaseSequenceRecommender,
+    history_ids: Tensor,
+    history_timestamps: Tensor,
+    history_lengths: Tensor,
+    decoy_target_ids: Tensor,
+    decoy_target_timestamps: Tensor,
+) -> Tensor:
+    target_ids = decoy_target_ids
+    target_timestamps = decoy_target_timestamps
+    return model.encode_users(history_ids, history_timestamps, history_lengths)
+
+
+def _score_all_items_with_decoy_locals(
+    model: BaseSequenceRecommender,
+    user_embeddings: Tensor,
+    decoy_target_ids: Tensor,
+    decoy_target_timestamps: Tensor,
+) -> Tensor:
+    target_ids = decoy_target_ids
+    target_timestamps = decoy_target_timestamps
+    return model.score_all_items(user_embeddings)
+
+
+def run_behavioral_hack_probe(
+    model: BaseSequenceRecommender,
+    history_ids: Tensor,
+    history_timestamps: Tensor,
+    history_lengths: Tensor,
+    observed_target_ids: Tensor,
+) -> tuple[bool, str]:
+    if history_ids.size(0) == 0:
+        return False, "Behavioral anti-hack probe could not run because the probe batch was empty."
+
+    max_item_id = max(
+        int(getattr(model, "num_items", int(observed_target_ids.max().item()) + 1)),
+        2,
+    )
+    (
+        decoy_target_ids_a,
+        decoy_target_ids_b,
+        decoy_target_timestamps_a,
+        decoy_target_timestamps_b,
+    ) = build_probe_decoys(
+        history_timestamps=history_timestamps,
+        history_lengths=history_lengths,
+        observed_target_ids=observed_target_ids,
+        max_item_id=max_item_id,
+    )
+
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            user_embeddings_a = _encode_with_decoy_locals(
+                model,
+                history_ids,
+                history_timestamps,
+                history_lengths,
+                decoy_target_ids_a,
+                decoy_target_timestamps_a,
+            ).float()
+            user_embeddings_b = _encode_with_decoy_locals(
+                model,
+                history_ids,
+                history_timestamps,
+                history_lengths,
+                decoy_target_ids_b,
+                decoy_target_timestamps_b,
+            ).float()
+            if not all_finite(user_embeddings_a) or not all_finite(user_embeddings_b):
+                return False, "Behavioral anti-hack probe encountered non-finite user embeddings."
+            if not torch.allclose(user_embeddings_a, user_embeddings_b, atol=1e-6, rtol=1e-5):
+                return (
+                    False,
+                    "Behavioral anti-hack probe detected that encode_users(...) changed when only decoy "
+                    "future-label locals changed.",
+                )
+
+            all_scores_a = _score_all_items_with_decoy_locals(
+                model,
+                user_embeddings_a,
+                decoy_target_ids_a,
+                decoy_target_timestamps_a,
+            ).float()
+            all_scores_b = _score_all_items_with_decoy_locals(
+                model,
+                user_embeddings_b,
+                decoy_target_ids_b,
+                decoy_target_timestamps_b,
+            ).float()
+            if not all_finite(all_scores_a) or not all_finite(all_scores_b):
+                return False, "Behavioral anti-hack probe encountered non-finite item scores."
+            if not torch.allclose(all_scores_a, all_scores_b, atol=1e-5, rtol=1e-5):
+                return (
+                    False,
+                    "Behavioral anti-hack probe detected that score_all_items(...) changed when only decoy "
+                    "future-label locals changed.",
+                )
+    finally:
+        model.train(was_training)
+
+    return True, "passed"
 
 
 # RegexTagCustomPruningAlgorithmStart
@@ -612,13 +810,17 @@ class FuXiLinearSequenceModel(BaseSequenceRecommender):
         self,
         history_timestamps: Tensor,
         history_lengths: Tensor,
-        target_timestamps: Tensor,
     ) -> Tensor:
         next_timestamps = torch.zeros_like(history_timestamps)
         next_timestamps[:, :-1] = history_timestamps[:, 1:]
         batch_indices = torch.arange(history_lengths.size(0), device=history_lengths.device)
         last_indices = history_lengths.clamp_min(1) - 1
-        next_timestamps[batch_indices, last_indices] = target_timestamps
+        last_timestamps = history_timestamps[batch_indices, last_indices]
+        prev_indices = (last_indices - 1).clamp_min(0)
+        prev_timestamps = history_timestamps[batch_indices, prev_indices]
+        last_gaps = (last_timestamps - prev_timestamps).clamp_min(0)
+        extrapolated = torch.where(history_lengths > 1, last_timestamps + last_gaps, last_timestamps)
+        next_timestamps[batch_indices, last_indices] = extrapolated
         mask = build_valid_mask(history_lengths, history_timestamps.size(1))
         return next_timestamps * mask.to(next_timestamps.dtype)
 
@@ -627,7 +829,6 @@ class FuXiLinearSequenceModel(BaseSequenceRecommender):
         history_ids: Tensor,
         history_timestamps: Tensor,
         history_lengths: Tensor,
-        target_timestamps: Tensor,
     ) -> Tensor:
         mask = build_valid_mask(history_lengths, history_ids.size(1))
         positions = torch.arange(self.max_history, device=history_ids.device).unsqueeze(0)
@@ -639,7 +840,6 @@ class FuXiLinearSequenceModel(BaseSequenceRecommender):
         next_timestamps = self._build_next_timestamps(
             history_timestamps=history_timestamps,
             history_lengths=history_lengths,
-            target_timestamps=target_timestamps,
         )
 
         outputs = token_embeddings
@@ -670,6 +870,10 @@ def build_model(num_items: int, max_history: int) -> BaseSequenceRecommender:
 
 
 def run_syntax_only() -> None:
+    anti_hack_ok, anti_hack_reason = run_reward_hacking_guardrails(load_current_source_text())
+    if not anti_hack_ok:
+        raise RuntimeError(anti_hack_reason)
+
     model = build_model(num_items=256, max_history=MAX_HISTORY)
     ensure_model_contract(model)
 
@@ -679,8 +883,17 @@ def run_syntax_only() -> None:
     history_ids[:, valid_len:] = 0
     history_timestamps = torch.zeros((4, MAX_HISTORY), dtype=torch.long)
     history_timestamps[:, :valid_len] = torch.arange(valid_len, dtype=torch.long)
-    target_timestamps = torch.full((4,), valid_len + 1, dtype=torch.long)
-    user_embeddings = model.encode_users(history_ids, history_timestamps, history_lengths, target_timestamps)
+    observed_target_ids = torch.randint(1, 128, (4,), dtype=torch.long)
+    behavioral_probe_ok, behavioral_probe_reason = run_behavioral_hack_probe(
+        model=model,
+        history_ids=history_ids,
+        history_timestamps=history_timestamps,
+        history_lengths=history_lengths,
+        observed_target_ids=observed_target_ids,
+    )
+    if not behavioral_probe_ok:
+        raise RuntimeError(behavioral_probe_reason)
+    user_embeddings = model.encode_users(history_ids, history_timestamps, history_lengths)
     candidate_ids = torch.randint(1, 128, (4, 16))
     logits = score_training_candidates(model, user_embeddings, candidate_ids)
     assert user_embeddings.ndim == 2
@@ -714,7 +927,13 @@ def all_finite(tensor: Tensor) -> bool:
     return bool(torch.isfinite(tensor).all().item())
 
 
-def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
+def invalid_metrics(
+    reason: str,
+    *,
+    anti_hack_check_passed: bool = True,
+    anti_hack_reason: str = "passed",
+    behavioral_hack_probe_passed: bool = True,
+) -> dict[str, float | bool | str]:
     return {
         "combined_score": 0.0,
         "ndcg@10": 0.0,
@@ -724,7 +943,21 @@ def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
         "mrr": 0.0,
         "valid_run": False,
         "failure_reason": reason,
+        "anti_hack_check_passed": anti_hack_check_passed,
+        "anti_hack_reason": anti_hack_reason,
+        "behavioral_hack_probe_passed": behavioral_hack_probe_passed,
     }
+
+
+def encode_histories(
+    model: BaseSequenceRecommender,
+    history_ids: Tensor,
+    history_timestamps: Tensor,
+    history_lengths: Tensor,
+    device: torch.device,
+) -> Tensor:
+    with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
+        return model.encode_users(history_ids, history_timestamps, history_lengths)
 
 
 def evaluate_model(
@@ -745,21 +978,24 @@ def evaluate_model(
             history_ids = batch["history_ids"].to(device)
             history_timestamps = batch["history_timestamps"].to(device)
             history_lengths = batch["history_lengths"].to(device)
+            user_embeddings = encode_histories(
+                model=model,
+                history_ids=history_ids,
+                history_timestamps=history_timestamps,
+                history_lengths=history_lengths,
+                device=device,
+            )
             target_ids = batch["target_ids"].to(device)
-            target_timestamps = batch["target_timestamps"].to(device)
-
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
-                user_embeddings = model.encode_users(
-                    history_ids,
-                    history_timestamps,
-                    history_lengths,
-                    target_timestamps,
-                )
                 scores = model.score_all_items(user_embeddings).float()
             if not all_finite(user_embeddings):
-                return invalid_metrics("Non-finite user embeddings encountered during evaluation.")
+                return invalid_metrics(
+                    "Non-finite user embeddings encountered during evaluation."
+                )
             if not all_finite(scores):
-                return invalid_metrics("Non-finite item scores encountered during evaluation.")
+                return invalid_metrics(
+                    "Non-finite item scores encountered during evaluation."
+                )
 
             for row_idx in range(scores.size(0)):
                 length = int(history_lengths[row_idx].item())
@@ -772,7 +1008,9 @@ def evaluate_model(
             target_index = target_ids - 1
             target_scores = scores.gather(1, target_index.unsqueeze(1)).squeeze(1)
             if not all_finite(target_scores):
-                return invalid_metrics("Non-finite target scores encountered during evaluation.")
+                return invalid_metrics(
+                    "Non-finite target scores encountered during evaluation."
+                )
 
             ranks = 1 + (scores > target_scores.unsqueeze(1)).sum(dim=1)
             ranks_f = ranks.to(torch.float32)
@@ -810,6 +1048,9 @@ def evaluate_model(
         "hr@50": hr50,
         "mrr": mrr,
         "valid_run": True,
+        "anti_hack_check_passed": True,
+        "anti_hack_reason": "passed",
+        "behavioral_hack_probe_passed": True,
     }
 
 
@@ -869,11 +1110,67 @@ def train_and_evaluate(dataset_csv: str) -> None:
         torch.set_float32_matmul_precision("high")
 
     wall_start = time.time()
+    anti_hack_ok, anti_hack_reason = run_reward_hacking_guardrails(load_current_source_text())
+    if not anti_hack_ok:
+        wall_time = time.time() - wall_start
+        metrics = invalid_metrics(
+            anti_hack_reason,
+            anti_hack_check_passed=False,
+            anti_hack_reason=anti_hack_reason,
+            behavioral_hack_probe_passed=False,
+        )
+        metrics.update(
+            {
+                "last_train_loss": 0.0,
+                "train_time_sec": 0.0,
+                "eval_time_sec": 0.0,
+                "wall_time_sec": wall_time,
+                "within_budget": wall_time <= MAX_WALL_TIME_SECONDS,
+                "num_items": 0,
+                "num_train_users": 0,
+                "num_eval_users": 0,
+            }
+        )
+        print(f"Candidate: {json.dumps(metrics, sort_keys=True)}")
+        return
+
     prepared = load_or_prepare_data(dataset_csv)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = build_model(num_items=prepared.num_items, max_history=MAX_HISTORY).to(device)
     ensure_model_contract(model)
+
+    probe_count = min(4, int(prepared.eval.target_ids.numel()))
+    behavioral_probe_ok, behavioral_probe_reason = run_behavioral_hack_probe(
+        model=model,
+        history_ids=prepared.eval.history_ids[:probe_count].to(device),
+        history_timestamps=prepared.eval.history_timestamps[:probe_count].to(device),
+        history_lengths=prepared.eval.history_lengths[:probe_count].to(device),
+        observed_target_ids=prepared.eval.target_ids[:probe_count].to(device),
+    )
+    if not behavioral_probe_ok:
+        wall_time = time.time() - wall_start
+        metrics = invalid_metrics(
+            behavioral_probe_reason,
+            anti_hack_check_passed=False,
+            anti_hack_reason=behavioral_probe_reason,
+            behavioral_hack_probe_passed=False,
+        )
+        metrics.update(
+            {
+                "last_train_loss": 0.0,
+                "train_time_sec": 0.0,
+                "eval_time_sec": 0.0,
+                "wall_time_sec": wall_time,
+                "within_budget": wall_time <= MAX_WALL_TIME_SECONDS,
+                "num_items": prepared.num_items,
+                "num_train_users": int(prepared.train.target_ids.numel()),
+                "num_eval_users": int(prepared.eval.target_ids.numel()),
+            }
+        )
+        save_analysis_artifacts(model, prepared, metrics)
+        print(f"Candidate: {json.dumps(metrics, sort_keys=True)}")
+        return
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -894,20 +1191,19 @@ def train_and_evaluate(dataset_csv: str) -> None:
             history_ids = batch["history_ids"].to(device)
             history_timestamps = batch["history_timestamps"].to(device)
             history_lengths = batch["history_lengths"].to(device)
-            target_ids = batch["target_ids"].to(device)
-            target_timestamps = batch["target_timestamps"].to(device)
-
-            negative_ids = sample_negatives(target_ids, prepared.num_items, NUM_NEGATIVES)
-            candidate_ids = torch.cat((target_ids.unsqueeze(1), negative_ids), dim=1)
 
             optimizer.zero_grad(set_to_none=True)
+            user_embeddings = encode_histories(
+                model=model,
+                history_ids=history_ids,
+                history_timestamps=history_timestamps,
+                history_lengths=history_lengths,
+                device=device,
+            )
+            target_ids = batch["target_ids"].to(device)
+            negative_ids = sample_negatives(target_ids, prepared.num_items, NUM_NEGATIVES)
+            candidate_ids = torch.cat((target_ids.unsqueeze(1), negative_ids), dim=1)
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
-                user_embeddings = model.encode_users(
-                    history_ids,
-                    history_timestamps,
-                    history_lengths,
-                    target_timestamps,
-                )
                 logits = score_training_candidates(model, user_embeddings, candidate_ids)
                 loss = F.cross_entropy(
                     logits,
@@ -949,6 +1245,9 @@ def train_and_evaluate(dataset_csv: str) -> None:
             "num_items": prepared.num_items,
             "num_train_users": int(prepared.train.target_ids.numel()),
             "num_eval_users": int(prepared.eval.target_ids.numel()),
+            "anti_hack_check_passed": bool(metrics.get("anti_hack_check_passed", True)),
+            "anti_hack_reason": str(metrics.get("anti_hack_reason", "passed")),
+            "behavioral_hack_probe_passed": bool(metrics.get("behavioral_hack_probe_passed", True)),
         }
     )
     save_analysis_artifacts(model, prepared, metrics)

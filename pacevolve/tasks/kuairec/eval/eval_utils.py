@@ -71,6 +71,34 @@ def parse_eval_metrics(
     raise ValueError("Input must be a string or a list of strings.")
 
 
+def _validate_eval_payload(payload: dict | None) -> str | None:
+    if payload is None:
+        return "Could not parse KuaRec evaluation payload."
+    if not isinstance(payload, dict):
+        return "Parsed KuaRec evaluation payload is not a dictionary."
+    if not payload.get("anti_hack_check_passed", False):
+        return (
+            "Task-local anti-hack guardrail failed: "
+            f"{payload.get('anti_hack_reason', 'unknown reason')}"
+        )
+    if not payload.get("behavioral_hack_probe_passed", False):
+        return "Task-local behavioral anti-hack probe failed."
+    if not payload.get("valid_run", True):
+        return (
+            "Candidate reported an invalid run: "
+            f"{payload.get('failure_reason', 'unknown reason')}"
+        )
+    if not payload.get("within_budget", False):
+        return "Candidate exceeded the fixed runtime budget."
+    try:
+        score = float(payload["combined_score"])
+    except Exception:
+        return "Candidate did not report a valid combined_score."
+    if not math.isfinite(score):
+        return "Candidate produced a non-finite combined_score."
+    return None
+
+
 def _build_command(config: dict, syntax_only: bool = False) -> str:
     eval_path = os.path.expanduser(config["paths"]["eval_path"])
     src_path = os.path.expanduser(config["paths"]["src_path"])
@@ -154,6 +182,21 @@ def evaluate_dataset(
             stdout="",
             stderr=f"evaluate_dataset for {eval_config.dataset} failed to complete.",
         )
+    if process_result.returncode == 0:
+        payload = parse_eval_metrics(process_result.stdout)
+        invalid_reason = _validate_eval_payload(payload)
+        if invalid_reason is not None:
+            stderr = process_result.stderr.strip()
+            if stderr:
+                stderr = f"{stderr}\n{invalid_reason}"
+            else:
+                stderr = invalid_reason
+            return CompletedProcess(
+                args=process_result.args,
+                returncode=-1,
+                stdout=process_result.stdout,
+                stderr=stderr,
+            )
     return process_result
 
 
@@ -162,21 +205,11 @@ def parse_eval_results(
 ) -> list[float | None] | float | None:
     if isinstance(eval_results, str):
         payload = parse_eval_metrics(eval_results)
-        if payload is None:
-            return None
-        if not payload.get("valid_run", True):
-            logger.error(
-                "Candidate reported an invalid run: %s",
-                payload.get("failure_reason", "unknown reason"),
-            )
-            return None
-        if not payload.get("within_budget", False):
-            logger.error("Candidate exceeded the fixed runtime budget.")
+        invalid_reason = _validate_eval_payload(payload)
+        if invalid_reason is not None:
+            logger.error(invalid_reason)
             return None
         score = float(payload["combined_score"])
-        if not math.isfinite(score):
-            logger.error("Candidate produced a non-finite combined_score.")
-            return None
         return score
 
     if isinstance(eval_results, list):

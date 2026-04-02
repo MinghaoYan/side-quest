@@ -56,7 +56,7 @@ workflow_loops:
     loop_tag: "initial_compile_loop"
     summary_tag: "initial_compile_summary"
   initial_eval:
-    max_attempts: 2
+    max_attempts: 3
     max_compile_attempts: 4
     loop_tag: "initial_eval_loop"
     summary_tag: "initial_eval_summary"
