@@ -29,12 +29,6 @@ WEIGHT_DECAY = 0.0
 NUM_NEGATIVES = 128
 MAX_WALL_TIME_SECONDS = 2400.0
 TEMPERATURE = 0.05
-EDIT_START_TAG = "# RegexTagCustomPruningAlgorithmStart"
-EDIT_END_TAG = "# RegexTagCustomPruningAlgorithmEnd"
-FORBIDDEN_NAME_REFERENCES = ("target_ids", "target_timestamps", "sys")
-FORBIDDEN_CALL_NAMES = ("eval", "exec", "globals", "locals", "vars", "__import__")
-FORBIDDEN_IMPORT_ROOTS = ("inspect",)
-FORBIDDEN_ATTRIBUTE_NAMES = ("_getframe", "f_back", "f_locals", "f_globals")
 
 
 def configure_csv_field_limit() -> None:
@@ -233,208 +227,6 @@ def score_training_candidates(
         return score_candidates(user_embeddings, candidate_ids)
     all_scores = model.score_all_items(user_embeddings)
     return all_scores.gather(1, candidate_ids - 1)
-
-
-class RewardHackGuardVisitor(ast.NodeVisitor):
-    def __init__(self) -> None:
-        self.violations: list[str] = []
-
-    def _record(self, message: str) -> None:
-        if message not in self.violations:
-            self.violations.append(message)
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            root = alias.name.split(".", 1)[0]
-            if root in FORBIDDEN_IMPORT_ROOTS:
-                self._record(f"forbidden import `{root}`")
-        self.generic_visit(node)
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        root = (node.module or "").split(".", 1)[0]
-        if root in FORBIDDEN_IMPORT_ROOTS:
-            self._record(f"forbidden import `{root}`")
-        self.generic_visit(node)
-
-    def visit_Name(self, node: ast.Name) -> None:
-        if node.id in FORBIDDEN_NAME_REFERENCES:
-            self._record(f"forbidden name reference `{node.id}`")
-        self.generic_visit(node)
-
-    def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in FORBIDDEN_ATTRIBUTE_NAMES:
-            self._record(f"forbidden reflective attribute `{node.attr}`")
-        self.generic_visit(node)
-
-    def visit_Call(self, node: ast.Call) -> None:
-        func = node.func
-        if isinstance(func, ast.Name) and func.id in FORBIDDEN_CALL_NAMES:
-            self._record(f"forbidden reflective call `{func.id}(...)`")
-        if isinstance(func, ast.Attribute) and func.attr in FORBIDDEN_ATTRIBUTE_NAMES:
-            self._record(f"forbidden reflective call `.{func.attr}(...)`")
-        self.generic_visit(node)
-
-
-def extract_editable_block(source_text: str) -> str:
-    if EDIT_START_TAG not in source_text or EDIT_END_TAG not in source_text:
-        raise ValueError("Could not locate editable block tags in candidate source.")
-    return source_text.split(EDIT_START_TAG, 1)[1].split(EDIT_END_TAG, 1)[0]
-
-
-def run_reward_hacking_guardrails(source_text: str) -> tuple[bool, str]:
-    try:
-        editable_block = extract_editable_block(source_text)
-        tree = ast.parse(editable_block)
-    except Exception as exc:
-        return False, f"Reward-hacking guardrail could not parse the editable block: {exc}"
-
-    visitor = RewardHackGuardVisitor()
-    visitor.visit(tree)
-    if visitor.violations:
-        joined = "; ".join(visitor.violations)
-        return (
-            False,
-            "Reward-hacking guardrail rejected the candidate: "
-            f"{joined}. The editable block must not access future labels, "
-            "future timestamps, or Python frame/introspection primitives.",
-        )
-    return True, "passed"
-
-
-def load_current_source_text() -> str:
-    with open(__file__, "r", encoding="utf-8") as handle:
-        return handle.read()
-
-
-def build_probe_decoys(
-    history_timestamps: Tensor,
-    history_lengths: Tensor,
-    observed_target_ids: Tensor,
-    max_item_id: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-    batch_indices = torch.arange(history_lengths.size(0), device=history_lengths.device)
-    last_indices = history_lengths.clamp_min(1) - 1
-    last_timestamps = history_timestamps[batch_indices, last_indices]
-
-    decoy_target_ids_a = observed_target_ids.clone()
-    decoy_target_ids_b = torch.remainder(observed_target_ids, max_item_id) + 1
-    same_mask = decoy_target_ids_b.eq(decoy_target_ids_a)
-    if same_mask.any():
-        decoy_target_ids_b[same_mask] = torch.remainder(decoy_target_ids_b[same_mask], max_item_id) + 1
-
-    decoy_target_timestamps_a = last_timestamps + 1
-    decoy_target_timestamps_b = last_timestamps + 1_000_003
-    return (
-        decoy_target_ids_a,
-        decoy_target_ids_b,
-        decoy_target_timestamps_a,
-        decoy_target_timestamps_b,
-    )
-
-
-def _encode_with_decoy_locals(
-    model: BaseSequenceRecommender,
-    history_ids: Tensor,
-    history_timestamps: Tensor,
-    history_lengths: Tensor,
-    decoy_target_ids: Tensor,
-    decoy_target_timestamps: Tensor,
-) -> Tensor:
-    target_ids = decoy_target_ids
-    target_timestamps = decoy_target_timestamps
-    return model.encode_users(history_ids, history_timestamps, history_lengths)
-
-
-def _score_all_items_with_decoy_locals(
-    model: BaseSequenceRecommender,
-    user_embeddings: Tensor,
-    decoy_target_ids: Tensor,
-    decoy_target_timestamps: Tensor,
-) -> Tensor:
-    target_ids = decoy_target_ids
-    target_timestamps = decoy_target_timestamps
-    return model.score_all_items(user_embeddings)
-
-
-def run_behavioral_hack_probe(
-    model: BaseSequenceRecommender,
-    history_ids: Tensor,
-    history_timestamps: Tensor,
-    history_lengths: Tensor,
-    observed_target_ids: Tensor,
-) -> tuple[bool, str]:
-    if history_ids.size(0) == 0:
-        return False, "Behavioral anti-hack probe could not run because the probe batch was empty."
-
-    max_item_id = max(
-        int(getattr(model, "num_items", int(observed_target_ids.max().item()) + 1)),
-        2,
-    )
-    (
-        decoy_target_ids_a,
-        decoy_target_ids_b,
-        decoy_target_timestamps_a,
-        decoy_target_timestamps_b,
-    ) = build_probe_decoys(
-        history_timestamps=history_timestamps,
-        history_lengths=history_lengths,
-        observed_target_ids=observed_target_ids,
-        max_item_id=max_item_id,
-    )
-
-    was_training = model.training
-    model.eval()
-    try:
-        with torch.no_grad():
-            user_embeddings_a = _encode_with_decoy_locals(
-                model,
-                history_ids,
-                history_timestamps,
-                history_lengths,
-                decoy_target_ids_a,
-                decoy_target_timestamps_a,
-            ).float()
-            user_embeddings_b = _encode_with_decoy_locals(
-                model,
-                history_ids,
-                history_timestamps,
-                history_lengths,
-                decoy_target_ids_b,
-                decoy_target_timestamps_b,
-            ).float()
-            if not all_finite(user_embeddings_a) or not all_finite(user_embeddings_b):
-                return False, "Behavioral anti-hack probe encountered non-finite user embeddings."
-            if not torch.allclose(user_embeddings_a, user_embeddings_b, atol=1e-6, rtol=1e-5):
-                return (
-                    False,
-                    "Behavioral anti-hack probe detected that encode_users(...) changed when only decoy "
-                    "future-label locals changed.",
-                )
-
-            all_scores_a = _score_all_items_with_decoy_locals(
-                model,
-                user_embeddings_a,
-                decoy_target_ids_a,
-                decoy_target_timestamps_a,
-            ).float()
-            all_scores_b = _score_all_items_with_decoy_locals(
-                model,
-                user_embeddings_b,
-                decoy_target_ids_b,
-                decoy_target_timestamps_b,
-            ).float()
-            if not all_finite(all_scores_a) or not all_finite(all_scores_b):
-                return False, "Behavioral anti-hack probe encountered non-finite item scores."
-            if not torch.allclose(all_scores_a, all_scores_b, atol=1e-5, rtol=1e-5):
-                return (
-                    False,
-                    "Behavioral anti-hack probe detected that score_all_items(...) changed when only decoy "
-                    "future-label locals changed.",
-                )
-    finally:
-        model.train(was_training)
-
-    return True, "passed"
 
 
 # RegexTagCustomPruningAlgorithmStart
@@ -870,10 +662,6 @@ def build_model(num_items: int, max_history: int) -> BaseSequenceRecommender:
 
 
 def run_syntax_only() -> None:
-    anti_hack_ok, anti_hack_reason = run_reward_hacking_guardrails(load_current_source_text())
-    if not anti_hack_ok:
-        raise RuntimeError(anti_hack_reason)
-
     model = build_model(num_items=256, max_history=MAX_HISTORY)
     ensure_model_contract(model)
 
@@ -883,16 +671,6 @@ def run_syntax_only() -> None:
     history_ids[:, valid_len:] = 0
     history_timestamps = torch.zeros((4, MAX_HISTORY), dtype=torch.long)
     history_timestamps[:, :valid_len] = torch.arange(valid_len, dtype=torch.long)
-    observed_target_ids = torch.randint(1, 128, (4,), dtype=torch.long)
-    behavioral_probe_ok, behavioral_probe_reason = run_behavioral_hack_probe(
-        model=model,
-        history_ids=history_ids,
-        history_timestamps=history_timestamps,
-        history_lengths=history_lengths,
-        observed_target_ids=observed_target_ids,
-    )
-    if not behavioral_probe_ok:
-        raise RuntimeError(behavioral_probe_reason)
     user_embeddings = model.encode_users(history_ids, history_timestamps, history_lengths)
     candidate_ids = torch.randint(1, 128, (4, 16))
     logits = score_training_candidates(model, user_embeddings, candidate_ids)
@@ -927,13 +705,7 @@ def all_finite(tensor: Tensor) -> bool:
     return bool(torch.isfinite(tensor).all().item())
 
 
-def invalid_metrics(
-    reason: str,
-    *,
-    anti_hack_check_passed: bool = True,
-    anti_hack_reason: str = "passed",
-    behavioral_hack_probe_passed: bool = True,
-) -> dict[str, float | bool | str]:
+def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
     return {
         "combined_score": 0.0,
         "ndcg@10": 0.0,
@@ -943,9 +715,6 @@ def invalid_metrics(
         "mrr": 0.0,
         "valid_run": False,
         "failure_reason": reason,
-        "anti_hack_check_passed": anti_hack_check_passed,
-        "anti_hack_reason": anti_hack_reason,
-        "behavioral_hack_probe_passed": behavioral_hack_probe_passed,
     }
 
 
@@ -1048,9 +817,6 @@ def evaluate_model(
         "hr@50": hr50,
         "mrr": mrr,
         "valid_run": True,
-        "anti_hack_check_passed": True,
-        "anti_hack_reason": "passed",
-        "behavioral_hack_probe_passed": True,
     }
 
 
@@ -1110,67 +876,11 @@ def train_and_evaluate(dataset_csv: str) -> None:
         torch.set_float32_matmul_precision("high")
 
     wall_start = time.time()
-    anti_hack_ok, anti_hack_reason = run_reward_hacking_guardrails(load_current_source_text())
-    if not anti_hack_ok:
-        wall_time = time.time() - wall_start
-        metrics = invalid_metrics(
-            anti_hack_reason,
-            anti_hack_check_passed=False,
-            anti_hack_reason=anti_hack_reason,
-            behavioral_hack_probe_passed=False,
-        )
-        metrics.update(
-            {
-                "last_train_loss": 0.0,
-                "train_time_sec": 0.0,
-                "eval_time_sec": 0.0,
-                "wall_time_sec": wall_time,
-                "within_budget": wall_time <= MAX_WALL_TIME_SECONDS,
-                "num_items": 0,
-                "num_train_users": 0,
-                "num_eval_users": 0,
-            }
-        )
-        print(f"Candidate: {json.dumps(metrics, sort_keys=True)}")
-        return
-
     prepared = load_or_prepare_data(dataset_csv)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = build_model(num_items=prepared.num_items, max_history=MAX_HISTORY).to(device)
     ensure_model_contract(model)
-
-    probe_count = min(4, int(prepared.eval.target_ids.numel()))
-    behavioral_probe_ok, behavioral_probe_reason = run_behavioral_hack_probe(
-        model=model,
-        history_ids=prepared.eval.history_ids[:probe_count].to(device),
-        history_timestamps=prepared.eval.history_timestamps[:probe_count].to(device),
-        history_lengths=prepared.eval.history_lengths[:probe_count].to(device),
-        observed_target_ids=prepared.eval.target_ids[:probe_count].to(device),
-    )
-    if not behavioral_probe_ok:
-        wall_time = time.time() - wall_start
-        metrics = invalid_metrics(
-            behavioral_probe_reason,
-            anti_hack_check_passed=False,
-            anti_hack_reason=behavioral_probe_reason,
-            behavioral_hack_probe_passed=False,
-        )
-        metrics.update(
-            {
-                "last_train_loss": 0.0,
-                "train_time_sec": 0.0,
-                "eval_time_sec": 0.0,
-                "wall_time_sec": wall_time,
-                "within_budget": wall_time <= MAX_WALL_TIME_SECONDS,
-                "num_items": prepared.num_items,
-                "num_train_users": int(prepared.train.target_ids.numel()),
-                "num_eval_users": int(prepared.eval.target_ids.numel()),
-            }
-        )
-        save_analysis_artifacts(model, prepared, metrics)
-        print(f"Candidate: {json.dumps(metrics, sort_keys=True)}")
-        return
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -1245,9 +955,6 @@ def train_and_evaluate(dataset_csv: str) -> None:
             "num_items": prepared.num_items,
             "num_train_users": int(prepared.train.target_ids.numel()),
             "num_eval_users": int(prepared.eval.target_ids.numel()),
-            "anti_hack_check_passed": bool(metrics.get("anti_hack_check_passed", True)),
-            "anti_hack_reason": str(metrics.get("anti_hack_reason", "passed")),
-            "behavioral_hack_probe_passed": bool(metrics.get("behavioral_hack_probe_passed", True)),
         }
     )
     save_analysis_artifacts(model, prepared, metrics)

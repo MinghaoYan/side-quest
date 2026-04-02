@@ -30,7 +30,7 @@ While completing your task, you MUST:
   - `encode_users(history_ids, history_timestamps, history_lengths)`
   - `score_all_items(user_embeddings)`
 - The fixed trainer outside the editable block controls dataset choice, epochs, optimizer, batch size, sampled-softmax training, and evaluation.
-- Do NOT reference future labels or use reflection / frame inspection inside the editable block. Any use of `target_ids`, `target_timestamps`, `inspect`, `_getframe`, `locals()`, `globals()`, `vars()`, `eval()`, or `exec()` is invalid.
+- Do NOT implement reward hacking, future-label leakage, or hidden-state introspection. The KuaRec evaluator runs a task-local LLM review that rejects candidates using future labels, reflection, frame inspection, hidden evaluator state, or similar tricks.
 - Do NOT add network calls, file reads beyond the dataset already used by the trainer, or heavyweight external dependencies.
 - Keep the code deterministic and self-contained.
 - Each triple-backtick code block must contain valid Python.
@@ -48,7 +48,7 @@ The benchmark keeps the experimental scaffold fixed:
 - Objective: fixed sampled-softmax next-item prediction
 - Evaluation: fixed full-catalog ranking with NDCG@10, NDCG@50, HR@10, HR@50, and MRR
 - Runtime budget: fixed wall-clock budget with a relaxed 2400s task timeout
-- Reward-hacking guardrail: fixed task-local check that rejects future-label leakage and Python frame introspection
+- Reward-hacking guardrail: fixed task-local LLM review that rejects future-label leakage, hidden-state introspection, and similar evaluator exploits
 
 The evolvable surface is intentionally narrower:
 
@@ -256,7 +256,6 @@ The evaluator reports held-out next-item ranking quality on KuaRec.
 - `combined_score` is the optimization target and should be maximized.
 - Higher `ndcg@10`, `ndcg@50`, `hr@10`, `hr@50`, and `mrr` are better.
 - `within_budget` must remain true.
-- `anti_hack_check_passed` must remain true.
 """
 
 HPARAM_PROMPT = """

@@ -127,9 +127,6 @@ The candidate script prints a JSON payload with:
 - `wall_time_sec`
 - `within_budget`
 - `valid_run`
-- `anti_hack_check_passed`
-- `anti_hack_reason`
-- `behavioral_hack_probe_passed`
 
 `combined_score` is the optimization target and is defined as:
 
@@ -140,11 +137,11 @@ Non-finite runs are treated as invalid:
 - If training or evaluation produces non-finite tensors or loss, the script marks `valid_run=false`.
 - PACEvolve then treats that candidate as invalid instead of allowing accidental reward through degenerate ranking behavior.
 
-Task-local reward-hacking checks are also enforced:
+Task-local reward-hacking review is also enforced:
 
-- The editable block must not access future labels or future timestamps.
-- The evaluator rejects candidates that reference `target_ids`, `target_timestamps`, or Python frame/introspection primitives such as `inspect`, `_getframe`, `f_back`, `locals()`, `globals()`, `vars()`, `eval()`, or `exec()`.
-- The evaluator also runs a behavioral probe that re-calls the model with identical real histories but different decoy future-label locals; if outputs change, the candidate is rejected.
+- The editable block must behave like a normal causal recommender and must not rely on future labels, future timestamps, hidden evaluator state, or reflection tricks.
+- During PACEvolve eval, the KuaRec task runs a task-local LLM review over the candidate source before eval, and again with the eval payload after a successful run.
+- If that review decides the candidate is using reward hacking or evaluator leakage, the eval is rejected and the normal KuaRec eval-retry loop gets another repair attempt.
 - These checks are local to the KuaRec task and do not change the workflow for other tasks.
 
 ### What These Metrics Mean
@@ -183,7 +180,7 @@ Yes, for PACEvolve gym runs it now does.
 - The task now implements `parse_eval_metrics(...)` in [`eval_utils.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec/eval/eval_utils.py).
 - The gym recorder path now propagates the full parsed metric dictionary into each candidate entry in `metrics.json`, not just `combined_score`.
 
-That means each recorded candidate can retain fields like `ndcg@10`, `hr@10`, `mrr`, `wall_time_sec`, `within_budget`, and `anti_hack_check_passed` alongside the aggregate score.
+That means each recorded candidate can retain fields like `ndcg@10`, `hr@10`, `mrr`, `wall_time_sec`, and `within_budget` alongside the aggregate score.
 
 Candidates that exceed the wall-clock budget are treated as invalid.
 
