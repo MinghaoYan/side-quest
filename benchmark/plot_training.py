@@ -8,8 +8,8 @@ MAX_STEPS = 500
 
 # Hardcoded list of target directories (modify these paths)
 TARGET_DIRS = [
-    "logs/dpsk_distill_qwen3_8b_pacevolve_eplb_grpo_bs1_eplb",
-    "logs/dpsk_distill_qwen3_8b_pacevolve_eplb_pkpo"
+    "../logs/dpsk_distill_qwen3_8b_pacevolve_kuairec_hybrid_pkpo_grpo_cfg1_seed3407_kuairec",
+    # "logs/dpsk_distill_qwen3_8b_pacevolve_eplb_pkpo"
     # Add more directories as needed
 ]
 
