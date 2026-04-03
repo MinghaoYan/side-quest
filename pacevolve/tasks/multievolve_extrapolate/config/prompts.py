@@ -29,6 +29,7 @@ While completing your task, you MUST:
 - `train_df` and `test_df` are pandas DataFrames with at least `mutant`, `fitness`, and `num_mutations`.
 - Your function MUST return one numeric prediction per row of `test_df`.
 - Do not read files or call the network inside the candidate.
+- Keep the implementation memory-aware: avoid dense mutation-by-mutation tensors, huge kernel matrices, full combinatorial feature expansions, or other designs that scale quadratically/cubically in the number of variants when a sparse or streaming alternative exists.
 - If you train or fit an internal model, populate `_PACEVOLVE_LAST_ANALYSIS_ARTIFACT` with a small JSON-serializable summary so post-eval analysis can inspect it.
 - Each triple-backtick enclosed code block must contain valid Python and a valid implementation.
 """

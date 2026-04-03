@@ -8,8 +8,10 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
+import time
 from typing import Any, Optional
 
 
@@ -24,24 +26,85 @@ class CompletedProcess:
     stderr: str
 
 
+def _looks_like_gpu_oom(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    oom_markers = (
+        "cuda out of memory",
+        "cuda error: out of memory",
+        "torch.cuda.outofmemoryerror",
+        "cublas_status_alloc_failed",
+        "cudnn_status_alloc_failed",
+        "cuda driver error: out of memory",
+        "triton runtime error: out of memory",
+    )
+    return any(marker in text for marker in oom_markers)
+
+
+def _with_oom_context(command: str, returncode: int, stdout: str, stderr: str) -> CompletedProcess:
+    stderr_text = stderr.strip()
+    if _looks_like_gpu_oom(stdout, stderr_text):
+        oom_note = (
+            "Evaluation likely failed due to GPU out-of-memory and should be treated as a normal eval failure."
+        )
+        if oom_note.lower() not in stderr_text.lower():
+            stderr_text = "\n".join(part for part in [stderr_text, oom_note] if part).strip()
+    elif returncode in {-signal.SIGKILL, 128 + signal.SIGKILL, 137}:
+        kill_note = (
+            "Evaluation subprocess was hard-killed; treat it as a normal eval failure and continue."
+        )
+        if kill_note.lower() not in stderr_text.lower():
+            stderr_text = "\n".join(part for part in [stderr_text, kill_note] if part).strip()
+    return CompletedProcess(
+        args=command,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr_text,
+    )
+
+
 def _call_shell_command(command: str, timeout: int, max_retries: int) -> Optional[CompletedProcess]:
-    for _ in range(max_retries):
+    for attempt in range(max_retries):
+        process_handle = None
         try:
-            result = subprocess.run(
+            process_handle = subprocess.Popen(
                 command,
                 shell=True,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
+                start_new_session=True,
             )
+            stdout, stderr = process_handle.communicate(timeout=timeout)
+            return _with_oom_context(
+                command,
+                process_handle.returncode,
+                stdout,
+                stderr,
+            )
+        except subprocess.TimeoutExpired:
+            if process_handle and process_handle.poll() is None:
+                try:
+                    os.killpg(os.getpgid(process_handle.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        process_handle.wait(timeout=10)
+                    except Exception:
+                        pass
+            if attempt + 1 >= max_retries:
+                return None
+            time.sleep(1)
+            continue
+        except Exception as exc:
             return CompletedProcess(
                 args=command,
-                returncode=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                returncode=process_handle.returncode if process_handle else -1,
+                stdout="",
+                stderr=str(exc),
             )
-        except subprocess.TimeoutExpired as exc:
-            continue
     return None
 
 
@@ -57,16 +120,28 @@ def _get_python_executable() -> str:
     return shlex.quote(python_executable)
 
 
-def _get_cuda_prefix(config: dict) -> str:
+def _get_eval_env_prefix(config: dict, artifact_dir: Optional[str] = None) -> str:
+    env_parts: list[str] = []
+
     cuda_visible_devices = str(
         config.get("evaluation", {}).get("cuda_visible_devices", "")
     ).strip()
-    if not cuda_visible_devices:
+    if cuda_visible_devices:
+        env_parts.append(f"CUDA_VISIBLE_DEVICES={shlex.quote(cuda_visible_devices)}")
+
+    if artifact_dir:
+        env_parts.append(f"PACEVOLVE_ARTIFACT_DIR={shlex.quote(artifact_dir)}")
+
+    if not env_parts:
         return ""
-    return f"CUDA_VISIBLE_DEVICES={shlex.quote(cuda_visible_devices)} "
+    return " ".join(env_parts) + " "
 
 
-def _build_command(config: dict, syntax_only: bool = False) -> str:
+def _build_command(
+    config: dict,
+    syntax_only: bool = False,
+    artifact_dir: Optional[str] = None,
+) -> str:
     eval_path = os.path.expanduser(config["paths"]["eval_path"])
     src_path = os.path.expanduser(config["paths"]["src_path"])
     data_path = os.path.expanduser(config["paths"]["data_path"])
@@ -74,10 +149,10 @@ def _build_command(config: dict, syntax_only: bool = False) -> str:
     candidate_script = os.path.join(src_path, config["paths"]["target_file_path"])
     benchmark_level = config["evaluation"].get("benchmark_level", "lite")
     benchmark_protocol = config["evaluation"].get("benchmark_protocol", "paper")
-    cuda_prefix = _get_cuda_prefix(config)
     python_executable = _get_python_executable()
+    env_prefix = _get_eval_env_prefix(config, artifact_dir=artifact_dir)
     command = (
-        f"{cuda_prefix}{python_executable} {shlex.quote(eval_script)} "
+        f"{env_prefix}{python_executable} {shlex.quote(eval_script)} "
         f"--candidate_path {shlex.quote(candidate_script)} "
         f"--data_dir {shlex.quote(data_path)} "
         f"--benchmark_level {shlex.quote(str(benchmark_level))} "
@@ -119,7 +194,7 @@ def evaluate_dataset(
     del candidate_id, baseline_id
     results_path = os.path.expanduser(config["paths"]["results_path"])
     results_dir = os.path.join(results_path, eval_config.dataset)
-    eval_command = _build_command(config, syntax_only=False)
+    eval_command = _build_command(config, syntax_only=False, artifact_dir=results_dir)
 
     try:
         os.makedirs(results_dir, exist_ok=True)
@@ -132,7 +207,7 @@ def evaluate_dataset(
         )
 
     process_result = _call_shell_command(
-        f"PACEVOLVE_ARTIFACT_DIR={shlex.quote(results_dir)} {eval_command}",
+        eval_command,
         timeout=config["evaluation"]["eval_timeout"],
         max_retries=config["evaluation"]["eval_max_retries"],
     )

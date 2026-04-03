@@ -10,7 +10,13 @@ import sys
 import traceback
 from pathlib import Path
 
-import reference
+DEFAULT_BENCHMARK_PROTOCOL = "paper"
+
+
+def _import_reference():
+    import reference
+
+    return reference
 
 
 def _load_candidate(candidate_path: str):
@@ -38,6 +44,7 @@ def _syntax_check(candidate_path: str) -> None:
 
 
 def evaluate(candidate_path: str, data_dir: str, benchmark_level: str, benchmark_protocol: str) -> dict:
+    reference = _import_reference()
     candidate_module = _load_candidate(candidate_path)
     benchmark_payloads = reference.load_prepared_benchmark(
         Path(data_dir),
@@ -54,7 +61,7 @@ def main() -> int:
     parser.add_argument("--benchmark_level", default="lite", choices=["lite", "full"], type=str)
     parser.add_argument(
         "--benchmark_protocol",
-        default=reference.DEFAULT_BENCHMARK_PROTOCOL,
+        default=DEFAULT_BENCHMARK_PROTOCOL,
         choices=["paper", "released_code"],
         type=str,
     )
