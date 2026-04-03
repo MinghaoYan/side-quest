@@ -127,6 +127,10 @@ The candidate script prints a JSON payload with:
 - `wall_time_sec`
 - `within_budget`
 - `valid_run`
+- `mean_target_tie_count`
+- `max_target_tie_count`
+- `frac_target_tie_gt1`
+- `frac_target_tie_ge10`
 
 `combined_score` is the optimization target and is defined as:
 
@@ -141,7 +145,9 @@ Task-local reward-hacking review is also enforced:
 
 - The editable block must behave like a normal causal recommender and must not rely on future labels, future timestamps, hidden evaluator state, or reflection tricks.
 - During PACEvolve eval, the KuaRec task runs a task-local LLM review over the candidate source before eval, and again with the eval payload after a successful run.
-- If that review decides the candidate is using reward hacking or evaluator leakage, the eval is rejected and the normal KuaRec eval-retry loop gets another repair attempt.
+- KuaRec ranking metrics are also computed with tie-robust ranks, and the evaluator logs tie diagnostics such as `mean_target_tie_count` and `frac_target_tie_ge10`.
+- Suspicious high-score runs with excessive target-score ties are rejected as task-local metric hacking, even if the candidate source itself looks superficially normal.
+- If these task-local checks reject the run, the normal KuaRec eval-retry loop gets another repair attempt.
 - These checks are local to the KuaRec task and do not change the workflow for other tasks.
 
 ### What These Metrics Mean
@@ -180,7 +186,7 @@ Yes, for PACEvolve gym runs it now does.
 - The task now implements `parse_eval_metrics(...)` in [`eval_utils.py`](/Users/minghao/PACE-RL/pacevolve/tasks/kuairec/eval/eval_utils.py).
 - The gym recorder path now propagates the full parsed metric dictionary into each candidate entry in `metrics.json`, not just `combined_score`.
 
-That means each recorded candidate can retain fields like `ndcg@10`, `hr@10`, `mrr`, `wall_time_sec`, and `within_budget` alongside the aggregate score.
+That means each recorded candidate can retain fields like `ndcg@10`, `hr@10`, `mrr`, `wall_time_sec`, `within_budget`, and the tie diagnostics alongside the aggregate score.
 
 Candidates that exceed the wall-clock budget are treated as invalid.
 

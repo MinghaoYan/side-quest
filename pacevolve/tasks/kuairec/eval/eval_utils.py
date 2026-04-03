@@ -265,6 +265,50 @@ def _validate_eval_payload(payload: dict | None) -> str | None:
         return "Candidate did not report a valid combined_score."
     if not math.isfinite(score):
         return "Candidate produced a non-finite combined_score."
+    try:
+        ndcg10 = float(payload["ndcg@10"])
+        ndcg50 = float(payload["ndcg@50"])
+        hr10 = float(payload["hr@10"])
+        hr50 = float(payload["hr@50"])
+        mrr = float(payload["mrr"])
+    except Exception:
+        return "Candidate did not report all required KuaRec submetrics."
+    submetrics = (ndcg10, ndcg50, hr10, hr50, mrr)
+    if not all(math.isfinite(value) for value in submetrics):
+        return "Candidate produced a non-finite KuaRec submetric."
+
+    mean_target_tie_count = float(payload.get("mean_target_tie_count", 0.0))
+    max_target_tie_count = float(payload.get("max_target_tie_count", 0.0))
+    frac_target_tie_gt1 = float(payload.get("frac_target_tie_gt1", 0.0))
+    frac_target_tie_ge10 = float(payload.get("frac_target_tie_ge10", 0.0))
+    tie_metrics = (
+        mean_target_tie_count,
+        max_target_tie_count,
+        frac_target_tie_gt1,
+        frac_target_tie_ge10,
+    )
+    if not all(math.isfinite(value) for value in tie_metrics):
+        return "Candidate produced non-finite tie-diagnostic metrics."
+    if frac_target_tie_ge10 > 0.01:
+        return (
+            "Candidate was rejected for metric hacking: too many eval rows had large "
+            f"target tie sets (frac_target_tie_ge10={frac_target_tie_ge10:.4f})."
+        )
+    if mean_target_tie_count > 2.5 and score > 0.15:
+        return (
+            "Candidate was rejected for metric hacking: high score with excessive "
+            f"target-score ties (mean_target_tie_count={mean_target_tie_count:.3f})."
+        )
+    collapsed_metrics = max(
+        abs(hr10 - hr50),
+        abs(hr10 - ndcg10),
+        abs(ndcg10 - ndcg50),
+    ) <= 1e-8
+    if collapsed_metrics and abs(mrr - hr10) <= 1e-3 and score > 0.20:
+        return (
+            "Candidate was rejected for metric hacking: ranking metrics collapsed to an "
+            "implausibly identical pattern."
+        )
     return None
 
 

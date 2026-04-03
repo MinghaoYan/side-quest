@@ -29,6 +29,7 @@ WEIGHT_DECAY = 0.0
 NUM_NEGATIVES = 128
 MAX_WALL_TIME_SECONDS = 2400.0
 TEMPERATURE = 0.05
+TIE_SCORE_TOL = 1e-6
 
 
 def configure_csv_field_limit() -> None:
@@ -705,6 +706,21 @@ def all_finite(tensor: Tensor) -> bool:
     return bool(torch.isfinite(tensor).all().item())
 
 
+def compute_tie_aware_ranks(
+    scores: Tensor,
+    target_scores: Tensor,
+    tie_tol: float = TIE_SCORE_TOL,
+) -> tuple[Tensor, Tensor, Tensor]:
+    score_deltas = scores - target_scores.unsqueeze(1)
+    greater_counts = (score_deltas > tie_tol).sum(dim=1)
+    tie_counts = score_deltas.abs().le(tie_tol).sum(dim=1)
+
+    optimistic_ranks = greater_counts.to(torch.float32) + 1.0
+    pessimistic_ranks = greater_counts.to(torch.float32) + tie_counts.to(torch.float32)
+    average_ranks = 0.5 * (optimistic_ranks + pessimistic_ranks)
+    return average_ranks, pessimistic_ranks, tie_counts
+
+
 def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
     return {
         "combined_score": 0.0,
@@ -713,6 +729,10 @@ def invalid_metrics(reason: str) -> dict[str, float | bool | str]:
         "hr@10": 0.0,
         "hr@50": 0.0,
         "mrr": 0.0,
+        "mean_target_tie_count": 0.0,
+        "max_target_tie_count": 0.0,
+        "frac_target_tie_gt1": 0.0,
+        "frac_target_tie_ge10": 0.0,
         "valid_run": False,
         "failure_reason": reason,
     }
@@ -740,6 +760,10 @@ def evaluate_model(
     hr10_sum = 0.0
     hr50_sum = 0.0
     mrr_sum = 0.0
+    target_tie_count_sum = 0.0
+    target_tie_gt1_sum = 0.0
+    target_tie_ge10_sum = 0.0
+    max_target_tie_count = 0
     count = 0
 
     with torch.no_grad():
@@ -781,26 +805,33 @@ def evaluate_model(
                     "Non-finite target scores encountered during evaluation."
                 )
 
-            ranks = 1 + (scores > target_scores.unsqueeze(1)).sum(dim=1)
-            ranks_f = ranks.to(torch.float32)
+            average_ranks, pessimistic_ranks, tie_counts = compute_tie_aware_ranks(
+                scores=scores,
+                target_scores=target_scores,
+            )
             count += int(target_ids.size(0))
 
-            mrr_sum += (1.0 / ranks_f).sum().item()
+            target_tie_count_sum += tie_counts.to(torch.float32).sum().item()
+            target_tie_gt1_sum += tie_counts.gt(1).to(torch.float32).sum().item()
+            target_tie_ge10_sum += tie_counts.ge(10).to(torch.float32).sum().item()
+            max_target_tie_count = max(max_target_tie_count, int(tie_counts.max().item()))
 
-            hit10 = ranks <= 10
-            hit50 = ranks <= 50
+            mrr_sum += (1.0 / average_ranks).sum().item()
+
+            hit10 = pessimistic_ranks <= 10.0
+            hit50 = pessimistic_ranks <= 50.0
             hr10_sum += hit10.to(torch.float32).sum().item()
             hr50_sum += hit50.to(torch.float32).sum().item()
 
             ndcg10_sum += torch.where(
                 hit10,
-                1.0 / torch.log2(ranks_f + 1.0),
-                torch.zeros_like(ranks_f),
+                1.0 / torch.log2(average_ranks + 1.0),
+                torch.zeros_like(average_ranks),
             ).sum().item()
             ndcg50_sum += torch.where(
                 hit50,
-                1.0 / torch.log2(ranks_f + 1.0),
-                torch.zeros_like(ranks_f),
+                1.0 / torch.log2(average_ranks + 1.0),
+                torch.zeros_like(average_ranks),
             ).sum().item()
 
     ndcg10 = ndcg10_sum / max(count, 1)
@@ -816,6 +847,10 @@ def evaluate_model(
         "hr@10": hr10,
         "hr@50": hr50,
         "mrr": mrr,
+        "mean_target_tie_count": target_tie_count_sum / max(count, 1),
+        "max_target_tie_count": float(max_target_tie_count),
+        "frac_target_tie_gt1": target_tie_gt1_sum / max(count, 1),
+        "frac_target_tie_ge10": target_tie_ge10_sum / max(count, 1),
         "valid_run": True,
     }
 
