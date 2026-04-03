@@ -31,7 +31,7 @@ While completing your task, you MUST:
   - `score_all_items(user_embeddings)`
 - The fixed trainer outside the editable block controls dataset choice, epochs, optimizer, batch size, sampled-softmax training, and evaluation.
 - Do NOT implement reward hacking, future-label leakage, or hidden-state introspection. The KuaRec evaluator runs a task-local LLM review that rejects candidates using future labels, reflection, frame inspection, hidden evaluator state, or similar tricks.
-- Do NOT rely on degenerate tied-score behavior. KuaRec evaluation uses tie-robust ranking and rejects suspicious high-score runs with excessive target-score ties.
+- Do NOT rely on degenerate tied-score behavior. KuaRec evaluation uses tie-robust ranking and rejects obviously collapsed high-score metric patterns caused by pathological score ties.
 - Do NOT add network calls, file reads beyond the dataset already used by the trainer, or heavyweight external dependencies.
 - Keep the code deterministic and self-contained.
 - Each triple-backtick code block must contain valid Python.

@@ -146,7 +146,7 @@ Task-local reward-hacking review is also enforced:
 - The editable block must behave like a normal causal recommender and must not rely on future labels, future timestamps, hidden evaluator state, or reflection tricks.
 - During PACEvolve eval, the KuaRec task runs a task-local LLM review over the candidate source before eval, and again with the eval payload after a successful run.
 - KuaRec ranking metrics are also computed with tie-robust ranks, and the evaluator logs tie diagnostics such as `mean_target_tie_count` and `frac_target_tie_ge10`.
-- Suspicious high-score runs with excessive target-score ties are rejected as task-local metric hacking, even if the candidate source itself looks superficially normal.
+- Obviously collapsed high-score metric patterns caused by pathological score ties are rejected as task-local metric hacking, even if the candidate source itself looks superficially normal.
 - If these task-local checks reject the run, the normal KuaRec eval-retry loop gets another repair attempt.
 - These checks are local to the KuaRec task and do not change the workflow for other tasks.
 

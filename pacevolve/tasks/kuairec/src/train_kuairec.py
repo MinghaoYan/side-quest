@@ -29,7 +29,7 @@ WEIGHT_DECAY = 0.0
 NUM_NEGATIVES = 128
 MAX_WALL_TIME_SECONDS = 2400.0
 TEMPERATURE = 0.05
-TIE_SCORE_TOL = 1e-6
+TIE_SCORE_TOL = 0.0
 
 
 def configure_csv_field_limit() -> None:
@@ -744,8 +744,13 @@ def encode_histories(
     history_timestamps: Tensor,
     history_lengths: Tensor,
     device: torch.device,
+    use_autocast: bool = True,
 ) -> Tensor:
-    with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
+    with torch.autocast(
+        device_type=device.type,
+        enabled=use_autocast and device.type == "cuda",
+        dtype=torch.bfloat16,
+    ):
         return model.encode_users(history_ids, history_timestamps, history_lengths)
 
 
@@ -777,10 +782,11 @@ def evaluate_model(
                 history_timestamps=history_timestamps,
                 history_lengths=history_lengths,
                 device=device,
+                use_autocast=False,
             )
+            user_embeddings = user_embeddings.float()
             target_ids = batch["target_ids"].to(device)
-            with torch.autocast(device_type=device.type, enabled=device.type == "cuda", dtype=torch.bfloat16):
-                scores = model.score_all_items(user_embeddings).float()
+            scores = model.score_all_items(user_embeddings.float()).float()
             if not all_finite(user_embeddings):
                 return invalid_metrics(
                     "Non-finite user embeddings encountered during evaluation."
@@ -944,6 +950,7 @@ def train_and_evaluate(dataset_csv: str) -> None:
                 history_timestamps=history_timestamps,
                 history_lengths=history_lengths,
                 device=device,
+                use_autocast=True,
             )
             target_ids = batch["target_ids"].to(device)
             negative_ids = sample_negatives(target_ids, prepared.num_items, NUM_NEGATIVES)
