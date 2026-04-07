@@ -48,12 +48,46 @@ ProgramsDatabaseConfig = program_database.ProgramsDatabaseConfig
 IdeaRepo = idea_select_utils.IdeaRepo
 IdeaRepoDatabase = idea_select_utils.IdeaRepoDatabase
 
+
+def _rewrite_task_path(task_id: str, path_value: str):
+  if not isinstance(path_value, str) or not path_value:
+    return path_value
+
+  expanded = os.path.expanduser(path_value)
+  local_task_root = os.path.join(project_root, "tasks", task_id)
+  workspace_prefixes = [
+    os.path.join("/workspace", "pacevolve", "tasks", task_id),
+    os.path.join("/workspace", "pacevolve-analysis", "tasks", task_id),
+  ]
+
+  for prefix in workspace_prefixes:
+    if expanded == prefix or expanded.startswith(prefix + os.sep):
+      suffix = expanded[len(prefix):].lstrip(os.sep)
+      return os.path.join(local_task_root, suffix) if suffix else local_task_root
+  return path_value
+
+
+def _normalize_task_paths(config: dict) -> dict:
+  task_id = config['experiment']['task_id']
+  for key in [
+      "src_path",
+      "eval_path",
+      "results_path",
+      "log_dir",
+      "transcript_dir",
+  ]:
+    if key in config.get("paths", {}):
+      config["paths"][key] = _rewrite_task_path(task_id, config["paths"][key])
+  return config
+
+
 def load_configs(config_path) -> tuple[dict, CompilationConfig, list, str, object]:
   with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 
   # Store the absolute path to the config file so it can be passed to other scripts.
   config['config_path'] = os.path.abspath(config_path)
+  config = _normalize_task_paths(config)
 
   task_id = config['experiment']['task_id']
   # llm_name is used by llm_utils to determine which model/API to call.
@@ -206,14 +240,23 @@ if __name__ == "__main__":
     "--num_workers",
     type=int,
     required=False,
-    default=4,
+    default=8,
     help="Number of parallel worker processes (used with --parallel)."
   )
 
   args = parser.parse_args()
 
   # Load configurations
-  CONFIG_PATH = os.path.abspath(f"../tasks/{args.task_id}/config/{args.dataset_id}/config_{args.run_id}.yaml")
+  CONFIG_PATH = os.path.abspath(
+    os.path.join(
+      project_root,
+      "tasks",
+      args.task_id,
+      "config",
+      args.dataset_id,
+      f"config_{args.run_id}.yaml",
+    )
+  )
   config, compile_config, eval_configs, llm_name = load_configs(CONFIG_PATH)
   analysis_enabled = bool(config.get("analysis", {}).get("enabled", True))
 

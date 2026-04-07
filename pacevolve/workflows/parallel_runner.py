@@ -12,8 +12,10 @@ import dataclasses
 import importlib
 import logging
 import os
+import shutil
 import sys
 import time
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, Future
 from copy import deepcopy
 from typing import Optional
@@ -142,22 +144,40 @@ def _run_island_iteration(
     """
     t0 = time.time()
     result = IterationResult(iteration=iteration, island_id=island_id)
+    worker_temp_dir = None
 
     try:
         import llm_utils, workflow_utils
+        import task_utils
 
         Transcript = llm_utils.Transcript
         ContentChunk = llm_utils.ContentChunk
         AlgorithmTrial = workflow_utils.AlgorithmTrial
 
-        config = _worker_config
+        config = deepcopy(_worker_config)
         llm_name = _worker_llm_name
         prompts = _worker_prompts
-        compile_config = _worker_compile_config
         eval_configs = _worker_eval_configs
+
+        src_path = os.path.abspath(os.path.expanduser(config["paths"]["src_path"]))
+        worker_temp_dir = tempfile.mkdtemp(
+            prefix=f"pacevolve_worker_{os.getpid()}_{iteration}_{island_id}_",
+            dir="/tmp",
+        )
+        worker_src_path = os.path.join(worker_temp_dir, "src")
+        shutil.copytree(src_path, worker_src_path)
+        config["paths"]["src_path"] = worker_src_path
+        compile_config = task_utils.CompilationConfig(
+            target_file_path=os.path.join(
+                worker_src_path,
+                config["paths"]["target_file_path"],
+            ),
+            pip_path=_worker_compile_config.pip_path,
+        )
 
         transcript = Transcript(log_filename=transcript_file)
         transcript.log_debug_message(f"### Starting parallel iteration {iteration} on island {island_id}")
+        transcript.log_debug_message(f"### Worker-local source tree: {worker_src_path}")
         trial = AlgorithmTrial()
 
         sota_algo = parent_code
@@ -330,6 +350,9 @@ def _run_island_iteration(
         result.error = str(e)
         result.elapsed = time.time() - t0
         return result
+    finally:
+        if worker_temp_dir and os.path.exists(worker_temp_dir):
+            shutil.rmtree(worker_temp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

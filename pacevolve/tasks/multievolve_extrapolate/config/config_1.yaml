@@ -46,7 +46,7 @@ analysis:
   diagnosis_enabled: false
 
 database:
-  num_islands: 1
+  num_islands: 8
   tournament_size: 2
   top_k: 4
   max_queue_size: 100
