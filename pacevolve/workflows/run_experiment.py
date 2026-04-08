@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import sys
 import time
 import argparse
@@ -31,7 +33,7 @@ project_root = os.path.dirname(workflows_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import llm_utils, workflow_utils, program_database, task_utils, idea_select_utils
+import llm_utils, workflow_utils, program_database, task_utils, idea_select_utils, analysis_utils, record_utils
 import importlib
 
 # NOTE: LLM interactions are handled in llm_utils.py
@@ -69,13 +71,15 @@ def _rewrite_task_path(task_id: str, path_value: str):
 
 def _normalize_task_paths(config: dict) -> dict:
   task_id = config['experiment']['task_id']
-  for key in [
-      "src_path",
-      "eval_path",
-      "results_path",
-      "log_dir",
-      "transcript_dir",
-  ]:
+  path_keys = [
+    "src_path",
+    "eval_path",
+    "results_path",
+    "log_dir",
+    "transcript_dir",
+    "records_dir",
+  ]
+  for key in path_keys:
     if key in config.get("paths", {}):
       config["paths"][key] = _rewrite_task_path(task_id, config["paths"][key])
   return config
@@ -115,6 +119,75 @@ def load_configs(config_path) -> tuple[dict, CompilationConfig, list, str, objec
   # prompts = importlib.import_module(f"tasks.{task_id}.config.prompts")
 
   return config, compile_config, eval_configs, llm_name
+
+
+def configure_island_gpu_mapping(config: dict, island_gpus_arg: str | None) -> list[str] | None:
+  """Configures a deterministic island -> GPU mapping for evaluation."""
+  evaluation_config = config.setdefault("evaluation", {})
+  raw_mapping = island_gpus_arg
+  if raw_mapping is None:
+    raw_mapping = evaluation_config.get("island_cuda_visible_devices")
+
+  island_gpu_map = task_utils.parse_island_cuda_visible_devices(raw_mapping)
+  if island_gpu_map is None:
+    return None
+
+  num_islands = config["database"]["num_islands"]
+  if len(island_gpu_map) < num_islands:
+    raise ValueError(
+      f"Configured {len(island_gpu_map)} island GPU ids for {num_islands} islands. "
+      "Please provide one GPU per island."
+    )
+
+  if len(island_gpu_map) > num_islands:
+    logger.warning(
+      f"Received {len(island_gpu_map)} island GPU ids for {num_islands} islands. "
+      f"Ignoring extras: {island_gpu_map[num_islands:]}"
+    )
+    island_gpu_map = island_gpu_map[:num_islands]
+
+  evaluation_config["island_cuda_visible_devices"] = island_gpu_map
+  return island_gpu_map
+
+
+def record_iteration_analysis(
+    analysis_manager: analysis_utils.AnalysisManager | None,
+    iteration: int,
+    island_id: int,
+    trial: AlgorithmTrial | None,
+    success: bool,
+    eval_score: float | None = None,
+    summary_bullets: list[str] | None = None,
+    failure_reason: str | None = None,
+    eval_results: list[str] | None = None,
+    elapsed_seconds: float | None = None,
+):
+  if analysis_manager is None:
+    return
+
+  trial = trial if trial is not None else AlgorithmTrial()
+  record = analysis_utils.IterationAnalysisRecord(
+    iteration=iteration,
+    island_id=island_id,
+    success=success,
+    compile_success=trial.compile_success,
+    eval_success=all(trial.eval_success) if trial.eval_success else False,
+    compile_attempts=trial.compile_attempts,
+    eval_attempts=trial.eval_attempts,
+    analysis_attempts=trial.analysis_attempts,
+    idea_id=trial.idea_id,
+    eval_score=eval_score,
+    analysis_success=trial.analysis_success,
+    analysis_metrics=trial.analysis_metrics,
+    summary_bullets=summary_bullets or [],
+    compile_errors=trial.compile_errors[:20],
+    eval_failures=trial.eval_failures[:20],
+    analysis_errors=trial.analysis_errors[:20],
+    eval_results=eval_results or trial.eval_results,
+    failure_reason=failure_reason,
+    elapsed_seconds=elapsed_seconds,
+  )
+  analysis_manager.record_iteration(record)
 
 
 if __name__ == "__main__":
@@ -243,6 +316,19 @@ if __name__ == "__main__":
     default=8,
     help="Number of parallel worker processes (used with --parallel)."
   )
+  parser.add_argument(
+    "--disable_analysis",
+    action="store_true",
+    default=False,
+    help="Disable the analysis module for ablation studies."
+  )
+  parser.add_argument(
+    "--island_gpus",
+    type=str,
+    required=False,
+    default=None,
+    help="Comma-separated CUDA device ids to reserve per island, e.g. '0,1,2,3'.",
+  )
 
   args = parser.parse_args()
 
@@ -258,7 +344,8 @@ if __name__ == "__main__":
     )
   )
   config, compile_config, eval_configs, llm_name = load_configs(CONFIG_PATH)
-  analysis_enabled = bool(config.get("analysis", {}).get("enabled", True))
+  analysis_enabled = bool(config.get("analysis", {}).get("enabled", True)) and not args.disable_analysis
+  island_gpu_map = configure_island_gpu_mapping(config, args.island_gpus)
 
   logfile_dir = os.path.expanduser(config['paths']['log_dir'])
   logfile_path = os.path.join(logfile_dir, f"controller_verbose_{timestamp}.log")
@@ -271,7 +358,9 @@ if __name__ == "__main__":
   transcript_dir = os.path.expanduser(config['paths']['transcript_dir'])
   os.makedirs(transcript_dir, exist_ok=True)
   transcript_file = os.path.join(transcript_dir, f"transcript_{timestamp}.txt")
+  records_run_dir = record_utils.get_records_run_dir(config, timestamp)
   print("Transcript will be written to: ", transcript_file)
+  print("Per-island step records will be written to: ", records_run_dir)
 
   # Main experiment loop.
   max_iters = config['experiment']['max_iters']
@@ -284,6 +373,7 @@ if __name__ == "__main__":
 
   baseline_id = config['experiment']['initial_baseline_id']
   task_id = config['experiment']['task_id']
+  task_eval_utils = importlib.import_module(f"tasks.{task_id}.eval.eval_utils")
   # Dynamically import task-specific prompts
   prompt_filename = config['experiment'].get('prompts_file', 'prompts')
   if args.dataset_id == ".":
@@ -319,11 +409,40 @@ if __name__ == "__main__":
     initial_repo.sota = sota_algo
     idea_repo_db.idea_repos[temp_id].append(initial_repo)
 
+  analysis_manager = None
+  analysis_jsonl_path = None
+  analysis_report_path = None
+  if analysis_enabled:
+    analysis_cfg = config.get("analysis", {})
+    analysis_dir = os.path.expanduser(
+      config['paths'].get('analysis_dir', os.path.join(logfile_dir, "analysis"))
+    )
+    os.makedirs(analysis_dir, exist_ok=True)
+    analysis_jsonl_path = os.path.join(analysis_dir, f"iteration_analysis_{timestamp}.jsonl")
+    analysis_report_path = os.path.join(analysis_dir, f"postmortem_{timestamp}.md")
+    analysis_manager = analysis_utils.AnalysisManager(
+      metric_direction=metric_dir,
+      jsonl_path=analysis_jsonl_path,
+      report_path=analysis_report_path,
+      task_eval_utils=task_eval_utils,
+      history_window=analysis_cfg.get("history_window", 60),
+      max_context_chars=analysis_cfg.get("max_context_chars", 2400),
+      recent_analysis_window=analysis_cfg.get("recent_analysis_window", 3),
+    )
+    logger.info(f"Iteration analysis will be written to: {analysis_jsonl_path}")
+    logger.info(f"Post-mortem report will be written to: {analysis_report_path}")
+  else:
+    logger.info("Analysis module disabled for this run.")
+
   logger.info(f"Backtrack frequency is {args.backtrack_freq}, Back track length is {args.backtrack_len}, alpha for power law is {args.power_alpha}")
+  if island_gpu_map is not None:
+    logger.info(f"Island GPU mapping enabled: {island_gpu_map}")
+  logger.info(f"Per-island step records will be written to: {records_run_dir}")
 
   # --- Parallel mode dispatch ---
   if args.parallel:
-    import parallel_runner, asyncio
+    import parallel_runner
+    import asyncio
     logger.info(f"Running in PARALLEL mode with {args.num_workers} workers")
     asyncio.run(parallel_runner.run_parallel_evolution(
         config=config,
@@ -333,15 +452,70 @@ if __name__ == "__main__":
         args=args,
         transcript_file=transcript_file,
         project_root=project_root,
+        workflows_dir=workflows_dir,
         num_workers=args.num_workers,
+        analysis_manager=analysis_manager,
+        enable_analysis=analysis_enabled,
     ))
-    logger.info(f"Parallel evolution finished.")
+    logger.info("Parallel evolution finished.")
+    logger.info(f"Per-island step records: {records_run_dir}")
+    if analysis_enabled:
+      logger.info(f"Iteration analysis log: {analysis_jsonl_path}")
+      logger.info(f"Post-mortem report: {analysis_report_path}")
     sys.exit(0)
 
   # --- Sequential mode (original) ---
   repo_idx_before_backtrack = 0
   backtrack_triggered_idx = -1
+  island_id = 0
+
+  def persist_iteration_records(
+    iteration: int,
+    island_id: int,
+    transcript,
+    trial: AlgorithmTrial,
+    failure_reason: str | None,
+    eval_score: float | None = None,
+    summary_bullets: list[str] | None = None,
+    elapsed_seconds: float | None = None,
+  ) -> None:
+    try:
+      record_utils.write_iteration_records(
+        records_run_dir=records_run_dir,
+        iteration=iteration,
+        island_id=island_id,
+        transcript=transcript,
+        candidate_code=trial.algorithm_implementation,
+        eval_results=trial.eval_results,
+        task_eval_utils=task_eval_utils,
+        success=failure_reason is None,
+        compile_success=trial.compile_success,
+        eval_success=all(trial.eval_success) if trial.eval_success else False,
+        compile_attempts=trial.compile_attempts,
+        eval_attempts=trial.eval_attempts,
+        analysis_attempts=trial.analysis_attempts,
+        idea_id=trial.idea_id,
+        eval_score=eval_score,
+        summary_bullets=summary_bullets,
+        compile_errors=trial.compile_errors,
+        eval_failures=trial.eval_failures,
+        analysis_errors=trial.analysis_errors,
+        analysis_success=trial.analysis_success,
+        analysis_metrics=trial.analysis_metrics,
+        failure_reason=failure_reason,
+        elapsed_seconds=elapsed_seconds,
+        cuda_visible_devices=config.get("evaluation", {}).get("cuda_visible_devices"),
+        analysis_mode=getattr(trial, "analysis_mode", "disabled"),
+        analysis_results=trial.analysis_results,
+        analysis_script=getattr(trial, "analysis_script", ""),
+      )
+    except Exception as exc:
+      logger.warning(
+        f"Failed to persist per-iteration records for iteration {iteration}, island {island_id}: {exc}"
+      )
+
   for i in range(max_iters):
+    iter_start_time = time.time()
     last_bt_iter = False
     logger.info(f"\n{'='*40} Iteration {i} {'='*40}")
 
@@ -391,6 +565,18 @@ if __name__ == "__main__":
     # elif args.backtrack_freq != -1 and (i+1) % args.backtrack_freq < args.backtrack_len and i >= args.backtrack_freq:
 
     new_idea_repo.sota = sota_algo
+    island_cuda_visible_devices = task_utils.resolve_cuda_visible_devices_for_island(
+      config, island_id
+    )
+    if island_cuda_visible_devices is not None:
+      config["evaluation"]["cuda_visible_devices"] = island_cuda_visible_devices
+      logger.info(
+        f"Island {island_id} assigned CUDA_VISIBLE_DEVICES={island_cuda_visible_devices}"
+      )
+    if analysis_manager is not None:
+      analysis_context = analysis_manager.build_reasoning_context(island_id)
+      if analysis_context:
+        transcript.append(ContentChunk(analysis_context, "system", tags=["analysis_context"]))
 
     per_island_count[island_id] += 1
     trigger_merge = False
@@ -406,12 +592,30 @@ if __name__ == "__main__":
       new_hypo = idea_select_utils.scratch_pad(new_idea_repo, llm_name, transcript, config, idea_gen_prompt_text)
       if not new_hypo:
         logger.error(f"Iter {i} failed to generate new hypothesis. Skipping to next iteration.")
+        trial.eval_failures.append("Failed to generate new hypothesis from scratch-pad stage.")
         if last_bt_iter and args.merge_freq > -1:
           logger.info(f"End of sequence, merge backtrack results and main results")
           new_idea_repo.ideas.extend(idea_repo_db.idea_repos[island_id][repo_idx_before_backtrack].ideas)
           new_idea_repo.reindex_ideas()
         if trigger_merge:
           workflow_utils.merge_ideas(llm_name, transcript_file, config, new_idea_repo, args.idea_cap)
+        record_iteration_analysis(
+          analysis_manager=analysis_manager,
+          iteration=i,
+          island_id=island_id,
+          trial=trial,
+          success=False,
+          failure_reason="idea_generation_failed",
+          elapsed_seconds=time.time() - iter_start_time,
+        )
+        persist_iteration_records(
+          iteration=i,
+          island_id=island_id,
+          transcript=transcript,
+          trial=trial,
+          failure_reason="idea_generation_failed",
+          elapsed_seconds=time.time() - iter_start_time,
+        )
         continue
 
       # This is step 2: Idea selection.
@@ -474,6 +678,23 @@ if __name__ == "__main__":
         new_idea_repo.reindex_ideas()
       if trigger_merge:
         workflow_utils.merge_ideas(llm_name, transcript_file, config, new_idea_repo, args.idea_cap)
+      record_iteration_analysis(
+        analysis_manager=analysis_manager,
+        iteration=i,
+        island_id=island_id,
+        trial=trial,
+        success=False,
+        failure_reason="compile_failed",
+        elapsed_seconds=time.time() - iter_start_time,
+      )
+      persist_iteration_records(
+        iteration=i,
+        island_id=island_id,
+        transcript=transcript,
+        trial=trial,
+        failure_reason="compile_failed",
+        elapsed_seconds=time.time() - iter_start_time,
+      )
       continue
 
     # Run the evaluation process.
@@ -511,13 +732,29 @@ if __name__ == "__main__":
         new_idea_repo.reindex_ideas()
       if trigger_merge:
         workflow_utils.merge_ideas(llm_name, transcript_file, config, new_idea_repo, args.idea_cap)
+      record_iteration_analysis(
+        analysis_manager=analysis_manager,
+        iteration=i,
+        island_id=island_id,
+        trial=trial,
+        success=False,
+        failure_reason="eval_failed",
+        elapsed_seconds=time.time() - iter_start_time,
+      )
+      persist_iteration_records(
+        iteration=i,
+        island_id=island_id,
+        transcript=transcript,
+        trial=trial,
+        failure_reason="eval_failed",
+        elapsed_seconds=time.time() - iter_start_time,
+      )
       continue
     # Log the initial eval results to the transcript.
     transcript.append(ContentChunk(prompts.EVAL_DESCRIPTION_PROMPT,"user", tags=["initial_eval_results"]))
     eval_results = "\n".join(["```"] + trial.eval_results + ["```"])
     transcript.append(ContentChunk(eval_results, "system", tags=["initial_eval_results"]))
 
-    task_eval_utils = importlib.import_module(f"tasks.{task_id}.eval.eval_utils")
     eval_score = task_eval_utils.parse_eval_results(trial.eval_results)
     logger.debug(f"My eval score is {eval_score}")
     if eval_score is None:
@@ -530,6 +767,8 @@ if __name__ == "__main__":
     # Summarize the experiment status.
     summary_prompt = prompts.SUMMARIZE_EVAL_PROMPT
     transcript.append(ContentChunk(summary_prompt, "user", tags=["final_summary_request"]))
+    llm_summary = None
+    bullets = []
     for idx in range(args.max_attempt):
       llm_summary = llm_utils.generate_completion(llm_name, transcript, config)
       if not llm_summary:
@@ -539,7 +778,8 @@ if __name__ == "__main__":
         break
 
     try:
-      bullets = workflow_utils.extract_summary(llm_summary)
+      if llm_summary:
+        bullets = workflow_utils.extract_summary(llm_summary)
       ablation_list.extend(bullets)
       if args.use_idea_repo:
         if trial.idea_id == -1:
@@ -566,9 +806,37 @@ if __name__ == "__main__":
     idea_repo_db.idea_repos[island_id].append(new_idea_repo)
     # idea_repo = new_idea_repo
 
+    failure_reason = None if eval_score is not None else "score_parse_failed"
+    record_iteration_analysis(
+      analysis_manager=analysis_manager,
+      iteration=i,
+      island_id=island_id,
+      trial=trial,
+      success=True,
+      eval_score=eval_score,
+      summary_bullets=bullets,
+      failure_reason=failure_reason,
+      eval_results=trial.eval_results,
+      elapsed_seconds=time.time() - iter_start_time,
+    )
+    persist_iteration_records(
+      iteration=i,
+      island_id=island_id,
+      transcript=transcript,
+      trial=trial,
+      failure_reason=failure_reason,
+      eval_score=eval_score,
+      summary_bullets=bullets,
+      elapsed_seconds=time.time() - iter_start_time,
+    )
+
     logger.info(f"Iter {i} summary:\n" + "\n".join(bullets))
 
     logger.info(f"{'='*40} Iteration {i} finished {'='*40}\n")
 
   logger.info(f"All {max_iters} iterations finished.")
   logger.info(f"LLM Transcript log: {transcript_file}")
+  logger.info(f"Per-island step records: {records_run_dir}")
+  if analysis_enabled:
+    logger.info(f"Iteration analysis log: {analysis_jsonl_path}")
+    logger.info(f"Post-mortem report: {analysis_report_path}")

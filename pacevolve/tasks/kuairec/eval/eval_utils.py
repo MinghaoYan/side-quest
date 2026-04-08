@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import sys
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[3] / "workflows"
@@ -35,6 +36,48 @@ class EvalConfig:
     """Evaluation configuration for KuaRec."""
 
     dataset: str
+
+
+def _looks_like_gpu_oom(stdout: str, stderr: str) -> bool:
+    text = f"{stdout}\n{stderr}".lower()
+    oom_markers = (
+        "cuda out of memory",
+        "cuda error: out of memory",
+        "torch.cuda.outofmemoryerror",
+        "cublas_status_alloc_failed",
+        "cudnn_status_alloc_failed",
+        "cuda driver error: out of memory",
+        "triton runtime error: out of memory",
+    )
+    return any(marker in text for marker in oom_markers)
+
+
+def _with_oom_context(process_result: CompletedProcess) -> CompletedProcess:
+    stderr_text = (process_result.stderr or "").strip()
+    stdout_text = process_result.stdout or ""
+    returncode = process_result.returncode
+    if _looks_like_gpu_oom(stdout_text, stderr_text):
+        oom_note = (
+            "Evaluation likely failed due to GPU out-of-memory and should be treated as a normal eval failure."
+        )
+        if oom_note.lower() not in stderr_text.lower():
+            stderr_text = "\n".join(
+                part for part in [stderr_text, oom_note] if part
+            ).strip()
+    elif returncode in {-signal.SIGKILL, 128 + signal.SIGKILL, 137}:
+        kill_note = (
+            "Evaluation subprocess was hard-killed; treat it as a normal eval failure and continue."
+        )
+        if kill_note.lower() not in stderr_text.lower():
+            stderr_text = "\n".join(
+                part for part in [stderr_text, kill_note] if part
+            ).strip()
+    return CompletedProcess(
+        args=process_result.args,
+        returncode=returncode,
+        stdout=stdout_text,
+        stderr=stderr_text,
+    )
 
 
 def _clip_text(text: str, limit: int) -> str:
@@ -341,6 +384,7 @@ def recompile_library(config: dict) -> CompletedProcess:
             stdout="",
             stderr="Compilation command failed to complete.",
         )
+    process_result = _with_oom_context(process_result)
     return CompletedProcess(
         args=command,
         returncode=process_result.returncode,
@@ -414,6 +458,7 @@ def evaluate_dataset(
             stdout="",
             stderr=f"evaluate_dataset for {eval_config.dataset} failed to complete.",
         )
+    process_result = _with_oom_context(process_result)
     if process_result.returncode == 0:
         payload = parse_eval_metrics(process_result.stdout)
         invalid_reason = _validate_eval_payload(payload)

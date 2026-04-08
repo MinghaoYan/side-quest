@@ -19,6 +19,8 @@ import tempfile
 from concurrent.futures import ProcessPoolExecutor, Future
 from copy import deepcopy
 from typing import Optional
+import analysis_utils
+import record_utils
 
 logger = logging.getLogger("controller")
 
@@ -47,21 +49,32 @@ class IterationResult:
     error: Optional[str] = None
     elapsed: float = 0.0
     updated_idea_repo: Optional[object] = None
+    compile_success: bool = False
+    eval_success: bool = False
+    compile_attempts: int = 0
+    eval_attempts: int = 0
+    compile_errors: list = dataclasses.field(default_factory=list)
+    eval_failures: list = dataclasses.field(default_factory=list)
     analysis_success: bool = False
     analysis_attempts: int = 0
     analysis_metrics: dict = dataclasses.field(default_factory=dict)
     analysis_errors: list = dataclasses.field(default_factory=list)
+    analysis_mode: str = "disabled"
+    analysis_results: str = ""
+    analysis_script: str = ""
+    cuda_visible_devices: Optional[str] = None
 
 
-def _worker_init(config_dict: dict, project_root: str):
+def _worker_init(config_dict: dict, project_root: str, workflows_dir: str):
     """Initialise heavy, non-picklable objects once per worker process."""
     global _worker_config, _worker_compile_config, _worker_eval_configs
     global _worker_llm_name, _worker_prompts, _worker_task_eval_utils
 
+    if workflows_dir and workflows_dir not in sys.path:
+        sys.path.insert(0, workflows_dir)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    import yaml
     import task_utils
 
     _worker_config = config_dict
@@ -133,6 +146,8 @@ def _run_island_iteration(
     idea_cap: int = -1,
     merge_freq: int = -1,
     summarize_freq: int = 20,
+    enable_analysis: bool = True,
+    analysis_context: Optional[str] = None,
 ) -> IterationResult:
     """Worker function executed in a child process.
 
@@ -175,10 +190,63 @@ def _run_island_iteration(
             pip_path=_worker_compile_config.pip_path,
         )
 
+        island_cuda_visible_devices = task_utils.resolve_cuda_visible_devices_for_island(
+            config, island_id
+        )
+        if island_cuda_visible_devices is not None:
+            config.setdefault("evaluation", {})
+            config["evaluation"]["cuda_visible_devices"] = island_cuda_visible_devices
+            result.cuda_visible_devices = island_cuda_visible_devices
+
         transcript = Transcript(log_filename=transcript_file)
         transcript.log_debug_message(f"### Starting parallel iteration {iteration} on island {island_id}")
         transcript.log_debug_message(f"### Worker-local source tree: {worker_src_path}")
+        if island_cuda_visible_devices is not None:
+            transcript.log_debug_message(
+                f"### Island {island_id} assigned CUDA_VISIBLE_DEVICES={island_cuda_visible_devices}"
+            )
+        if analysis_context:
+            transcript.append(ContentChunk(analysis_context, "system", tags=["analysis_context"]))
         trial = AlgorithmTrial()
+
+        def _persist_iteration_records(failure_reason: Optional[str]) -> None:
+            records_run_dir = config.get("paths", {}).get("records_run_dir")
+            if not records_run_dir:
+                return
+            try:
+                record_utils.write_iteration_records(
+                    records_run_dir=records_run_dir,
+                    iteration=iteration,
+                    island_id=island_id,
+                    transcript=transcript,
+                    candidate_code=trial.algorithm_implementation,
+                    eval_results=trial.eval_results,
+                    task_eval_utils=_worker_task_eval_utils,
+                    success=result.success,
+                    compile_success=trial.compile_success,
+                    eval_success=all(trial.eval_success) if trial.eval_success else False,
+                    compile_attempts=trial.compile_attempts,
+                    eval_attempts=trial.eval_attempts,
+                    analysis_attempts=trial.analysis_attempts,
+                    idea_id=trial.idea_id,
+                    eval_score=result.eval_score,
+                    summary_bullets=result.summary_bullets,
+                    compile_errors=trial.compile_errors,
+                    eval_failures=trial.eval_failures,
+                    analysis_errors=trial.analysis_errors,
+                    analysis_success=trial.analysis_success,
+                    analysis_metrics=trial.analysis_metrics,
+                    failure_reason=failure_reason,
+                    elapsed_seconds=result.elapsed,
+                    cuda_visible_devices=result.cuda_visible_devices,
+                    analysis_mode=result.analysis_mode,
+                    analysis_results=result.analysis_results,
+                    analysis_script=result.analysis_script,
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to persist records for iteration {iteration}, island {island_id}: {exc}"
+                )
 
         sota_algo = parent_code
         new_idea_repo = deepcopy(idea_repo_snapshot) if idea_repo_snapshot else None
@@ -195,7 +263,10 @@ def _run_island_iteration(
                 )
                 result.updated_idea_repo = new_idea_repo
                 result.error = "Failed to generate new hypothesis"
+                trial.eval_failures.append("Failed to generate new hypothesis from scratch-pad stage.")
+                result.eval_failures = list(trial.eval_failures)
                 result.elapsed = time.time() - t0
+                _persist_iteration_records("idea_generation_failed")
                 return result
 
             if use_idea_filter:
@@ -241,8 +312,16 @@ def _run_island_iteration(
             )
             result.updated_idea_repo = new_idea_repo
             result.error = "Compilation failed"
+            result.compile_success = False
+            result.eval_success = False
+            result.compile_attempts = trial.compile_attempts
+            result.compile_errors = trial.compile_errors
+            result.eval_attempts = trial.eval_attempts
+            result.eval_failures = trial.eval_failures
             result.elapsed = time.time() - t0
+            _persist_iteration_records("compile_failed")
             return result
+        result.compile_success = True
 
         # Eval
         trial = workflow_utils.edit_until_successful_eval(
@@ -251,7 +330,7 @@ def _run_island_iteration(
             loop_config=config['workflow_loops']['initial_eval'],
         )
         transcript.hide_by_tag(tags=["initial_eval_loop"])
-        if bool(config.get("analysis", {}).get("enabled", True)):
+        if enable_analysis:
             try:
                 analysis_prompt = workflow_utils.resolve_post_eval_analysis_prompt(
                     prompts, trial, transcript, config
@@ -278,6 +357,9 @@ def _run_island_iteration(
             result.analysis_attempts = trial.analysis_attempts
             result.analysis_metrics = trial.analysis_metrics
             result.analysis_errors = trial.analysis_errors
+            result.analysis_mode = getattr(trial, "analysis_mode", "disabled")
+            result.analysis_results = trial.analysis_results
+            result.analysis_script = getattr(trial, "analysis_script", "")
         if not all(trial.eval_success):
             _finalize_idea_repo_worker(
                 new_idea_repo, last_bt_iter, pre_bt_idea_repo_snapshot,
@@ -285,8 +367,22 @@ def _run_island_iteration(
             )
             result.updated_idea_repo = new_idea_repo
             result.error = "Evaluation failed"
+            result.eval_success = False
+            result.compile_attempts = trial.compile_attempts
+            result.compile_errors = trial.compile_errors
+            result.eval_attempts = trial.eval_attempts
+            result.eval_failures = trial.eval_failures
+            result.analysis_success = trial.analysis_success
+            result.analysis_attempts = trial.analysis_attempts
+            result.analysis_metrics = trial.analysis_metrics
+            result.analysis_errors = trial.analysis_errors
+            result.analysis_mode = getattr(trial, "analysis_mode", "disabled")
+            result.analysis_results = trial.analysis_results
+            result.analysis_script = getattr(trial, "analysis_script", "")
             result.elapsed = time.time() - t0
+            _persist_iteration_records("eval_failed")
             return result
+        result.eval_success = True
 
         # Parse score
         eval_score = _worker_task_eval_utils.parse_eval_results(trial.eval_results)
@@ -340,15 +436,42 @@ def _run_island_iteration(
         result.success = True
         result.elapsed = time.time() - t0
         result.updated_idea_repo = new_idea_repo
+        result.compile_success = True
+        result.eval_success = True
+        result.compile_attempts = trial.compile_attempts
+        result.compile_errors = trial.compile_errors
+        result.eval_attempts = trial.eval_attempts
+        result.eval_failures = trial.eval_failures
         result.analysis_success = trial.analysis_success
         result.analysis_attempts = trial.analysis_attempts
         result.analysis_metrics = trial.analysis_metrics
         result.analysis_errors = trial.analysis_errors
+        result.analysis_mode = getattr(trial, "analysis_mode", "disabled")
+        result.analysis_results = trial.analysis_results
+        result.analysis_script = getattr(trial, "analysis_script", "")
+        _persist_iteration_records(None if result.eval_score is not None else "score_parse_failed")
         return result
 
     except Exception as e:
         result.error = str(e)
         result.elapsed = time.time() - t0
+        try:
+            result.compile_attempts = trial.compile_attempts
+            result.compile_errors = trial.compile_errors
+            result.eval_attempts = trial.eval_attempts
+            result.eval_failures = trial.eval_failures
+        except Exception:
+            pass
+        try:
+            result.updated_idea_repo = new_idea_repo if use_idea_repo else None
+        except NameError:
+            result.updated_idea_repo = None
+        if (
+            'trial' in locals()
+            and 'transcript' in locals()
+            and '_persist_iteration_records' in locals()
+        ):
+            _persist_iteration_records("worker_exception")
         return result
     finally:
         if worker_temp_dir and os.path.exists(worker_temp_dir):
@@ -367,7 +490,10 @@ async def run_parallel_evolution(
     args,
     transcript_file: str,
     project_root: str,
+    workflows_dir: str,
     num_workers: int = 4,
+    analysis_manager: Optional[analysis_utils.AnalysisManager] = None,
+    enable_analysis: bool = True,
 ):
     """Run multi-island evolution with true process-level parallelism.
 
@@ -423,7 +549,7 @@ async def run_parallel_evolution(
     executor = ProcessPoolExecutor(
         max_workers=num_workers,
         initializer=_worker_init,
-        initargs=(config_for_workers, project_root),
+        initargs=(config_for_workers, project_root, workflows_dir),
     )
 
     try:
@@ -537,6 +663,9 @@ async def run_parallel_evolution(
             per_island_count[island] += 1
 
             iter_id = submitted
+            analysis_context = None
+            if analysis_manager is not None:
+                analysis_context = analysis_manager.build_reasoning_context(island)
             fut = executor.submit(
                 _run_island_iteration,
                 iter_id,
@@ -554,6 +683,8 @@ async def run_parallel_evolution(
                 idea_cap,
                 merge_freq,
                 summarize_freq,
+                enable_analysis,
+                analysis_context,
             )
             pending[iter_id] = (fut, island)
             submitted += 1
@@ -593,6 +724,33 @@ async def run_parallel_evolution(
 
             island_id = result.island_id
 
+            def _record_iteration_analysis(result_obj: IterationResult, failure_reason: Optional[str]) -> None:
+                if analysis_manager is None:
+                    return
+                analysis_manager.record_iteration(
+                    analysis_utils.IterationAnalysisRecord(
+                        iteration=result_obj.iteration,
+                        island_id=result_obj.island_id,
+                        success=result_obj.success,
+                        compile_success=result_obj.compile_success,
+                        eval_success=result_obj.eval_success,
+                        compile_attempts=result_obj.compile_attempts,
+                        eval_attempts=result_obj.eval_attempts,
+                        analysis_attempts=result_obj.analysis_attempts,
+                        idea_id=result_obj.idea_id,
+                        eval_score=result_obj.eval_score,
+                        analysis_success=result_obj.analysis_success,
+                        analysis_metrics=result_obj.analysis_metrics,
+                        summary_bullets=result_obj.summary_bullets,
+                        compile_errors=result_obj.compile_errors,
+                        eval_failures=result_obj.eval_failures,
+                        analysis_errors=result_obj.analysis_errors,
+                        eval_results=result_obj.eval_results,
+                        failure_reason=failure_reason,
+                        elapsed_seconds=result_obj.elapsed,
+                    )
+                )
+
             # Apply updated idea repo from the worker (covers both success & failure)
             if result.updated_idea_repo is not None and args.use_idea_repo:
                 idea_repo_db.idea_repos[island_id].append(result.updated_idea_repo)
@@ -609,14 +767,25 @@ async def run_parallel_evolution(
                 logger.info(
                     f"Iteration {result.iteration} (island {island_id}) completed in "
                     f"{result.elapsed:.1f}s  score={result.eval_score}"
+                    + (
+                        f" gpu={result.cuda_visible_devices}"
+                        if result.cuda_visible_devices is not None else ""
+                    )
                 )
                 if result.summary_bullets:
                     logger.info("Summary: " + " | ".join(result.summary_bullets[:3]))
+                _record_iteration_analysis(result, None)
             else:
+                failure_reason = result.error or ("score_parse_failed" if result.success else "iteration_failed")
                 logger.warning(
                     f"Iteration {result.iteration} (island {island_id}) failed: "
                     f"{result.error or 'unknown'}"
+                    + (
+                        f" gpu={result.cuda_visible_devices}"
+                        if result.cuda_visible_devices is not None else ""
+                    )
                 )
+                _record_iteration_analysis(result, failure_reason)
 
             completed += 1
             while _submit_one():

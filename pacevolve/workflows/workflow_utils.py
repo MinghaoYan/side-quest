@@ -50,6 +50,10 @@ class AlgorithmTrial:
   eval_success: list[bool] = dataclasses.field(default_factory=list)
   eval_results: list[str] = dataclasses.field(default_factory=list)
   idea_id: int = -1
+  compile_attempts: int = 0
+  eval_attempts: int = 0
+  compile_errors: list[str] = dataclasses.field(default_factory=list)
+  eval_failures: list[str] = dataclasses.field(default_factory=list)
   analysis_success: bool = False
   analysis_results: str = ""
   analysis_attempts: int = 0
@@ -170,7 +174,7 @@ def attempt_compile(
   trial: AlgorithmTrial,
   compile_config: CompilationConfig,
   config: dict,
-) -> tuple[AlgorithmTrial, str]:
+) -> tuple[AlgorithmTrial, str, str | None]:
   try:
     edit_library(
       compile_config.target_file_path,
@@ -180,7 +184,7 @@ def attempt_compile(
   except ValueError as e:
     error_message = f"INTERNAL ERROR: Failed to edit library: {e}"
     logger.critical(f"attempt_compile: {error_message}")
-    return trial, error_message
+    return trial, error_message, error_message
   
   task_id = config['experiment']['task_id']
   # Dynamically import task-specific eval_utils
@@ -190,6 +194,7 @@ def attempt_compile(
   success = (compile_output.returncode == 0)
 
   output_message = "Code compiled successfully."
+  error_description = None
   if not success:
     failure_type = _classify_compile_failure(compile_output)
     # Force key diagnostics into Ray stdout so users can grep train_log.txt directly.
@@ -219,7 +224,7 @@ def attempt_compile(
     logger.debug(f"attempt_compile: {line}")
   output_trial = copy.deepcopy(trial)
   output_trial.compile_success = success
-  return output_trial, output_message
+  return output_trial, output_message, error_description
 
 
 def edit_until_compile(
@@ -238,6 +243,7 @@ def edit_until_compile(
   code_was_revised = False
   recovery_prompt = None
   trial = copy.deepcopy(trial)  # Do not modify the original trial object.
+  existing_compile_attempts = trial.compile_attempts
   while num_attempts < max_compile_attempts:
     num_attempts += 1
     logger.info(f"edit_until_compile: {num_attempts}/{max_compile_attempts}")
@@ -258,6 +264,7 @@ def edit_until_compile(
       logger.critical(
         "edit_unil_compile: Expected latest message to be from 'model'."
       )
+      trial.compile_errors.append("No model response found at end of transcript.")
       recovery_prompt = "Error: No model response found. Please respond."
       continue
 
@@ -266,6 +273,7 @@ def edit_until_compile(
     # print(f"edit_until_compile: LLM Response:\n{current_llm_response}")
     if not current_llm_response:
       logger.warning("edit_until_compile: No response.")
+      trial.compile_errors.append("Model returned an empty response.")
       recovery_prompt = (
         "Your output did not contain any markdown-formatted code blocks. "
         "Please provide one."
@@ -276,6 +284,7 @@ def edit_until_compile(
       idea_id = idea_select_utils.extract_idea_id(current_llm_response)
       if not idea_id:
         logger.warning("edit_until_compile: Idea ID not found in response.")
+        trial.compile_errors.append("Missing Idea ID in model response.")
         recovery_prompt = (
           "Your output did not contain Idea ID for the selected idea. "
           "Please provide one."
@@ -290,6 +299,7 @@ def edit_until_compile(
 
     if not code_blocks:
       logger.warning("edit_until_compile: Code blocks not found in response.")
+      trial.compile_errors.append("No markdown code block found in model response.")
       recovery_prompt = (
         "Your output did not contain any markdown-formatted code blocks. "
         "Please provide one."
@@ -297,12 +307,16 @@ def edit_until_compile(
       continue
 
     trial.algorithm_implementation = code_blocks[0]  # Use the first block.
-    trial, recovery_prompt = attempt_compile(trial, compile_config, config)
+    trial, recovery_prompt, compile_error_summary = attempt_compile(trial, compile_config, config)
+    if compile_error_summary:
+      trial.compile_errors.append(_truncate_error_message(compile_error_summary))
 
     if trial.compile_success:
       logger.info(f"edit_until_compile: Attempt {num_attempts} successful")
       # All of the state is contained within the trial object.
       break
+
+  trial.compile_attempts = existing_compile_attempts + num_attempts
 
   if trial.compile_success and code_was_revised:
     transcript.log_debug_message(
@@ -877,6 +891,7 @@ def edit_until_successful_eval(
 
   code_was_revised = False
   num_attempts = 0
+  existing_eval_attempts = trial.eval_attempts
   while num_attempts < max_eval_attempts:
     num_attempts += 1
     logger.info(
@@ -920,6 +935,9 @@ def edit_until_successful_eval(
       msg for msg, flag in zip(trial.eval_results, trial.eval_success)
       if not flag
     ]
+    for msg in failed_eval_messages:
+      if len(trial.eval_failures) < 20:
+        trial.eval_failures.append(_truncate_error_message(msg))
     transcript.append(
       ContentChunk(
         "\n".join(f"- {m}" for m in failed_eval_messages),
@@ -952,6 +970,7 @@ def edit_until_successful_eval(
 
   # If we reach here, we either succeeded in evals or exhausted the attempts.
   final_success = all(trial.eval_success)
+  trial.eval_attempts = existing_eval_attempts + num_attempts
   if final_success:
     logger.info(
       f"edit_until_successful_eval: All evals ran for candidate {candidate_id} "
