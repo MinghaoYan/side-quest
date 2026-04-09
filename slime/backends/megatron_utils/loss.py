@@ -36,7 +36,11 @@ def get_responses(
     assert logits.dtype == torch.float32, f"{logits.dtype}"
 
     logits = logits.squeeze(0)
-    logits = logits.div(args.rollout_temperature)
+    if args.rollout_temperature != 1.0:
+        # `forward_only()` runs under `torch.no_grad()`, so we can safely avoid
+        # allocating a second full logits tensor here. This materially reduces
+        # peak memory during RL log-prob recomputation.
+        logits.div_(args.rollout_temperature)
 
     cp_size = mpu.get_context_parallel_world_size()
     end = 0

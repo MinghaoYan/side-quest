@@ -6,6 +6,41 @@ from slime.utils.arguments import parse_args
 from slime.utils.tensorboard_utils import _TensorboardAdapter
 from slime.utils.wandb_utils import init_wandb_primary
 
+_OOM_SENTINEL = object()
+
+
+def _is_training_oom_error(exc) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    oom_markers = (
+        "outofmemoryerror",
+        "cuda out of memory",
+        "cuda error: out of memory",
+        "cublas_status_alloc_failed",
+        "cudnn_status_alloc_failed",
+    )
+    return any(marker in text for marker in oom_markers)
+
+
+def _ray_get_train_or_quit(object_refs, *, role: str, rollout_id: int):
+    try:
+        return ray.get(object_refs)
+    except Exception as exc:
+        if not _is_training_oom_error(exc):
+            raise
+        print(
+            (
+                f"[TRAIN-OOM] role={role} rollout_id={rollout_id} "
+                "Quitting job cleanly after CUDA OOM during training.\n"
+                f"{exc}"
+            ),
+            flush=True,
+        )
+        try:
+            ray.shutdown()
+        except Exception:
+            pass
+        return _OOM_SENTINEL
+
 
 def train(args):
     # allocate the GPUs
@@ -49,10 +84,28 @@ def train(args):
         if args.use_critic:
             critic_train_handle = critic_model.async_train(rollout_id, rollout_data_ref)
             if rollout_id >= args.num_critic_only_steps:
-                ray.get(actor_model.async_train(rollout_id, rollout_data_ref))
-            ray.get(critic_train_handle)
+                actor_results = _ray_get_train_or_quit(
+                    actor_model.async_train(rollout_id, rollout_data_ref),
+                    role="actor",
+                    rollout_id=rollout_id,
+                )
+                if actor_results is _OOM_SENTINEL:
+                    return
+            critic_results = _ray_get_train_or_quit(
+                critic_train_handle,
+                role="critic",
+                rollout_id=rollout_id,
+            )
+            if critic_results is _OOM_SENTINEL:
+                return
         else:
-            ray.get(actor_model.async_train(rollout_id, rollout_data_ref))
+            actor_results = _ray_get_train_or_quit(
+                actor_model.async_train(rollout_id, rollout_data_ref),
+                role="actor",
+                rollout_id=rollout_id,
+            )
+            if actor_results is _OOM_SENTINEL:
+                return
 
 
         if args.save_interval is not None and (
