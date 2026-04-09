@@ -1,32 +1,32 @@
-(RolloutManager pid=4124429) perf 13: {'perf/rollout_time': 1058.0517885684967, 'perf/tokens_per_gpu_per_sec': 30.97012864023777, 'perf/longes
-t_sample_tokens_per_sec': 15.485064320118886}
-(RolloutManager pid=4124429) INFO:pacevolve.evolving_gym.pacevolve_recorder:PACEvolveRecorder: recorded step 13 to /workspace/logs/dpsk_distil
-l_qwen3_8b_pacevolve_kuairec_entropic_cfg1_seed3407_kuairec/records/step_00013
-Traceback (most recent call last):
-  File "/workspace/train.py", line 96, in <module>
-    train(args)
-  File "/workspace/train.py", line 55, in train
-    ray.get(actor_model.async_train(rollout_id, rollout_data_ref))
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/auto_init_hook.py", line 22, in auto_init_wrapper
-    return fn(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/client_mode_hook.py", line 104, in wrapper
-    return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 2858, in get
-    values, debugger_breakpoint = worker.get_objects(object_refs, timeout=timeout)
-                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 958, in get_objects
-    raise value.as_instanceof_cause()
-ray.exceptions.RayTaskError(OutOfMemoryError): ray::MegatronTrainRayActor.train() (pid=4123481, ip=172.17.0.2, actor_id=454f64efe1d7744e18bc9d
-1402000000, repr=<slime.backends.megatron_utils.actor.MegatronTrainRayActor object at 0x7f8f161d65d0>)
+on, and then a fixed model architecture.\n\nLooking at the provided model\'s code:\n\nThe provided model uses a fixed embedding and a fixed li
+near projection, and then a fixed model'], label: None, reward: {'reward': 0.5092208515679644, 'metrics': {'combined_score': 0.075461042578398
+22, 'rl_normalized_reward': 0.5092208515679644, 'eval_time_sec': 8.194090604782104, 'frac_target_tie_ge10': 0.0, 'frac_target_tie_gt1': 0.0, '
+hr@10': 0.10228539576365664, 'hr@50': 0.22867892976588627, 'last_train_loss': 0.8741846084594727, 'max_target_tie_count': 1.0, 'mean_target_ti
+e_count': 1.0, 'mrr': 0.06069949083860835, 'ndcg@10': 0.0633982411329297, 'ndcg@50': 0.09058909347631793, 'num_eval_users': 7176, 'num_items':
+ 9958, 'num_train_users': 7176, 'train_time_sec': 303.09930086135864, 'valid_run': True, 'wall_time_sec': 312.8544387817383, 'within_budget': 
+True}, 'child_id': '84a5f439-852d-4b0e-a86f-9869ca68ccd8', 'iteration_time': 501.4810035228729}
+(RolloutManager pid=4170461) Abort request for http://172.17.0.2:10000
+(RolloutManager pid=4170461) Collected 0 partial samples into the data buffer
+(RolloutManager pid=4170461) [SUCCESS] Rollout 5 PACEvolve database update
+(RolloutManager pid=4170461) [PACEvolve Recording] rollout=5 will_record=True record_dir=/workspace/logs/dpsk_distill_qwen3_8b_pacevolve_kuair
+ec_entropic_cfg1_seed3407_kuairec/records num_groups=1
+(RolloutManager pid=4170461) [PACEvolveRecorder] Writing to step_dir=/workspace/logs/dpsk_distill_qwen3_8b_pacevolve_kuairec_entropic_cfg1_see
+d3407_kuairec/records/step_00005
+(RolloutManager pid=4170461) [PACEvolve Record] step=5 best_score=0.10429867568994457
+(RolloutManager pid=4170461) perf 5: {'perf/rollout_time': 1010.8486542701721, 'perf/tokens_per_gpu_per_sec': 32.4163264812954, 'perf/longest_
+sample_tokens_per_sec': 16.2081632406477}
+(SGLangEngine pid=4170738) [2026-04-09 19:44:01] INFO:     172.17.0.2:36442 - "POST /abort_request HTTP/1.1" 200 OK
+(SGLangEngine pid=4170738) [2026-04-09 19:44:03] INFO:     172.17.0.2:36444 - "GET /health HTTP/1.1" 200 OK
+[TRAIN-OOM] role=actor rollout_id=5 Quitting job cleanly after CUDA OOM during training.
+ray::MegatronTrainRayActor.train() (pid=4169687, ip=172.17.0.2, actor_id=b5c0b7b52518d0ba7452bc4502000000, repr=<slime.backends.megatron_utils
+.actor.MegatronTrainRayActor object at 0x7f9d26e8a570>)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
     return self.train_actor(rollout_id, rollout_data)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 299, in train_actor
+  File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
     self.compute_log_prob(
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/actor.py", line 232, in compute_log_prob
@@ -37,36 +37,45 @@ ray.exceptions.RayTaskError(OutOfMemoryError): ray::MegatronTrainRayActor.train(
            ^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/model.py", line 223, in forward_only
     forward_data_store += forward_backward_func(
-                          ^^^^^^^^^^^^^^^^^^^^^^  
+                          ^^^^^^^^^^^^^^^^^^^^^^
   File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 597, in forward_backward_no_pipelining
     output_tensor, num_tokens = forward_step(
                                 ^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 402, in forward_step
-    output_tensor, num_tokens = forward_step_calc_loss(
-                                ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 246, in forward_step_calc_loss
-    data = loss_func(output_tensor, non_loss_data=True)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/loss.py", line 85, in get_log_probs_and_entropy
-    for logits_chunk, tokens_chunk in get_responses(
-                                      ^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/loss.py", line 39, in get_responses
-    logits = logits.div(args.rollout_temperature)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.45 GiB. GPU 0 has a total capacity of 39.38 GiB of which 832.38 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 19.32 GiB is allocated by PyTorch, and 14.38 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 397, in forward_step
+    output_tensor, loss_func = forward_step_func(data_iterator, model)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/backends/megatron_utils/model.py", line 189, in forward_step
+    output_tensor = model(
+                    ^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward
+    return self.module(*inputs, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 239, in forward
+    outputs = float16_to_fp32(outputs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 192, in float16_to_fp32
+    return conversion_helper(val, float_conversion)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 151, in conversion_helper
+    return conversion(val)
+           ^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 189, in float_conversion
+    val = val.float()
+          ^^^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.39 GiB. GPU 3 has a total capacity of 39.38 GiB of which 3.25 GiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 17.44 GiB is allocated by PyTorch, and 15.25 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
 
----------------------------------------
-Job 'raysubmit_pu1RhxFEGu4ELySR' failed
----------------------------------------
-
-Status message: Job entrypoint command failed with exit code 1, last available logs (truncated to 20,000 chars):
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 246, in forward_step_calc_loss
-    data = loss_func(output_tensor, non_loss_data=True)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/loss.py", line 85, in get_log_probs_and_entropy
-    for logits_chunk, tokens_chunk in get_responses(
-                                      ^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/loss.py", line 39, in get_responses
-    logits = logits.div(args.rollout_temperature)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.45 GiB. GPU 0 has a total capacity of 39.38 GiB of which 832.38 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 19.32 GiB is allocated by PyTorch, and 14.38 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+------------------------------------------
+Job 'raysubmit_3XkACXQnHXpmjbLz' succeeded
+------------------------------------------
