@@ -1,87 +1,42 @@
-(SGLangEngine pid=1263) 2. set --cuda-graph-max-bs to a smaller value (e.g., 16)
-(SGLangEngine pid=1263) 3. disable torch compile by not using --enable-torch-compile
-(SGLangEngine pid=1263) 4. disable CUDA graph by --disable-cuda-graph. (Not recommended. Huge performance loss)
-(SGLangEngine pid=1263) Open an issue on GitHub https://github.com/sgl-project/sglang/issues/new/choose
-(SGLangEngine pid=1263)
-(SGLangEngine pid=1263)
-(SGLangEngine pid=1263) [2026-04-10 00:22:22] Received sigquit from a child process. It usually means the child failed.
-(SGLangEngine pid=1263) [2026-04-10 00:22:22] Received sigquit from a child process. It usually means the child failed.
-(RolloutManager pid=984) Exception raised in creation task: The actor died because of an error raised in its creation task, ray::RolloutManage
-r.__init__() (pid=984, ip=172.17.0.2, actor_id=e63e877c3c7f00842ac02b6302000000, repr=<slime.ray.rollout.RolloutManager object at 0x7f68bc46dd
-00>)
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)   File "/workspace/slime/ray/rollout.py", line 55, in __init__
-(RolloutManager pid=984)     self.num_new_engines = init_rollout_engines(args, pg, self.all_rollout_engines)
-(RolloutManager pid=984)                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)   File "/workspace/slime/ray/rollout.py", line 408, in init_rollout_engines
-(RolloutManager pid=984)     ray.get(init_handles)
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984) ray.exceptions.RayTaskError: ray::SGLangEngine.init() (pid=1263, ip=172.17.0.2, actor_id=f5943a64052ceb213bdef0600200
-0000, repr=<slime.backends.sglang_utils.sglang_engine.SGLangEngine object at 0x7f61970fcb30>)
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)   File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 128, in init
-(RolloutManager pid=984)     self.process = launch_server_process(self.server_args)
-(RolloutManager pid=984)   File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 54, in launch_server_process
-(RolloutManager pid=984)     raise Exception("Server process terminated unexpectedly.")
-(RolloutManager pid=984) Exception: Server process terminated unexpectedly.
-Traceback (most recent call last):
-  File "/workspace/train.py", line 149, in <module>
-    train(args)
-  File "/workspace/train.py", line 57, in train
-    rollout_manager, num_rollout_per_epoch = create_rollout_manager(args, pgs["rollout"], wandb_run_id=wandb_run_id)
-                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/ray/placement_group.py", line 190, in create_rollout_manager
-    detected_rollout_id = ray.get(rollout_manager.load.remote(args.start_rollout_id - 1))
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/auto_init_hook.py", line 22, in auto_init_wrapper
-    return fn(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/client_mode_hook.py", line 104, in wrapper
-    return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 2858, in get
-    values, debugger_breakpoint = worker.get_objects(object_refs, timeout=timeout)
-                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 960, in get_objects
-    raise value
-ray.exceptions.ActorDiedError: The actor died because of an error raised in its creation task, ray::RolloutManager.__init__() (pid=984, ip=172.17.0.2, actor_id=e63e877c3c7f00842ac02b6302000000, repr=<slime.ray.rollout.RolloutManager object at 0x7f68bc46dd00>)
+nse_lengths_max': 7611.0, 'rollout/rollout/response_lengths_min': 763.0, 'rollout/rollout/total_lengths_mean': 9496.375
+, 'rollout/rollout/total_lengths_max': 12636.0, 'rollout/rollout/total_lengths_min': 5788.0, 'rollout/rollout/prompt_le
+ngths_mean': 5025.0, 'rollout/rollout/prompt_lengths_max': 5025.0, 'rollout/rollout/prompt_lengths_min': 5025.0, 'rollo
+ut/raw_reward': 0.5693330877387515, 'rollout/total_lengths': 9496.375, 'rollout/response_lengths': 4471.375, 'rollout/r
+ewards': 0.5693330877387515, 'rollout/truncated': 0.0, 'rollout/rollout_log_probs': -0.9284122288227081, 'rollout/ref_l
+og_probs': -0.9564715623855591, 'rollout/log_probs': -0.9564715623855591, 'rollout/advantages': 0.6747296154499054, 'ro
+llout/returns': 0.6747296154499054}
+[TRAIN-OOM] role=actor rollout_id=0 Quitting job cleanly after CUDA OOM during training.
+ray::MegatronTrainRayActor.train() (pid=26619, ip=172.17.0.2, actor_id=57ce041963047f316e25eee402000000, repr=<slime.backends.megatron_utils.actor.MegatronTrainRayActor object at 0x7f35f9b66420>)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/ray/rollout.py", line 55, in __init__
-    self.num_new_engines = init_rollout_engines(args, pg, self.all_rollout_engines)
-                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/ray/rollout.py", line 408, in init_rollout_engines
-    ray.get(init_handles)
-           ^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^  
-                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-ray.exceptions.RayTaskError: ray::SGLangEngine.init() (pid=1263, ip=172.17.0.2, actor_id=f5943a64052ceb213bdef06002000000, repr=<slime.backends.sglang_utils.sglang_engine.SGLangEngine object at 0x7f61970fcb30>)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
+    return self.train_actor(rollout_id, rollout_data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 128, in init
-    self.process = launch_server_process(self.server_args)
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 54, in launch_server_process
-    raise Exception("Server process terminated unexpectedly.")
-Exception: Server process terminated unexpectedly.
-(RolloutManager pid=984)                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^
-
----------------------------------------
-Job 'raysubmit_GKyE51mSqag7FD3K' failed
----------------------------------------
-
-Status message: Job entrypoint command failed with exit code 1, last available logs (truncated to 20,000 chars):
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 128, in init
-    self.process = launch_server_process(self.server_args)
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/sglang_utils/sglang_engine.py", line 54, in launch_server_process
-    raise Exception("Server process terminated unexpectedly.")
-Exception: Server process terminated unexpectedly.
-(RolloutManager pid=984)                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-(RolloutManager pid=984)            ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/backends/megatron_utils/actor.py", line 348, in train_actor
+    train(
+  File "/workspace/slime/backends/megatron_utils/model.py", line 456, in train
+    loss_dict, grad_norm = train_one_step(
+                           ^^^^^^^^^^^^^^^
+  File "/workspace/slime/backends/megatron_utils/model.py", line 320, in train_one_step
+    losses_reduced = forward_backward_func(
+                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 612, in forward_backward_no_pipelining
+    backward_step(
+  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 468, in backward_step
+    custom_backward(output_tensor[0], output_tensor_grad[0])
+  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 167, in custom_backward
+    Variable._execution_engine.run_backward(
+  File "/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py", line 311, in apply
+    return user_fn(self, *args)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/amp/autocast_mode.py", line 563, in decorate_bwd
+    return bwd(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/root/Megatron-LM/megatron/core/tensor_parallel/layers.py", line 523, in backward
+    grad_input = grad_output.matmul(weight)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`
+(MegatronTrainRayActor pid=26621) [DEBUG] Rewards stats: min=0.321833, max=0.836965, mean=0.569333 [repeated 3x across cluster]
+(MegatronTrainRayActor pid=26621) [DEBUG] advantage_estimator: entropic, normalize_advantages: False [repeated 3x across cluster]
+(MegatronTrainRayActor pid=26621) [DEBUG] Entropic rewards tensor stats: min=0.321833, max=0.836965, mean=0.569333 [repeated 3x across cluster]
