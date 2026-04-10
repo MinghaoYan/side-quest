@@ -271,7 +271,19 @@ SGLANG_ARGS=(
   --num-gpus-per-node ${NUM_GPUS_PER_NODE}
   --rollout-num-gpus-per-engine ${ROLLOUT_NUM_GPUS_PER_ENGINE}
   --sglang-mem-fraction-static 0.4
-  --sglang-cuda-graph-bs 1 2 4 8 $(seq 16 8 256)
+)
+
+if [ -n "${PACEVOLVE_SGLANG_CUDA_GRAPH_BS:-}" ]; then
+  read -r -a SGLANG_CUDA_GRAPH_BS <<< "${PACEVOLVE_SGLANG_CUDA_GRAPH_BS}"
+else
+  # The previous default captured graphs all the way to batch size 256, which can
+  # blow up server startup memory on the 8B PACEvolve rollout engines. Keep a
+  # safer default and allow explicit override via env when we want to tune it.
+  SGLANG_CUDA_GRAPH_BS=(1 2 4 8 16)
+fi
+
+SGLANG_ARGS+=(
+  --sglang-cuda-graph-bs "${SGLANG_CUDA_GRAPH_BS[@]}"
 )
 
 MISC_ARGS=(
