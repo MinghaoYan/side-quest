@@ -7,36 +7,36 @@
 ########################### CONFIGURATION SECTION #############################
 
 #### Important: replace SAVE_PATH with your path with enough space ####
-export SAVE_PATH="/workspace/logs"
+export SAVE_PATH="${SAVE_PATH:-/workspace/logs}"
 
 #### Model selection ####
-SMALL_MODEL_NAME="dpsk_distill_qwen3_8b"
+SMALL_MODEL_NAME="${SMALL_MODEL_NAME:-dpsk_distill_qwen3_8b}"
 
 #### EPLB task config selection ####
 # Maps to pacevolve/tasks/eplb/config/config_{EPLB_CONFIG_ID}.yaml
-EPLB_CONFIG_ID=1
+EPLB_CONFIG_ID="${EPLB_CONFIG_ID:-1}"
 
 #### Fast iteration defaults ####
 # Set True for full training, False for fast rollout/debug iteration.
-IS_TRAINING=True
-EPLB_MAX_ITERS=80
-EPLB_EVAL_TIMEOUT=600
-EPLB_RECOMPILE_TIMEOUT=120
+IS_TRAINING="${IS_TRAINING:-True}"
+EPLB_MAX_ITERS="${EPLB_MAX_ITERS:-80}"
+EPLB_EVAL_TIMEOUT="${EPLB_EVAL_TIMEOUT:-600}"
+EPLB_RECOMPILE_TIMEOUT="${EPLB_RECOMPILE_TIMEOUT:-120}"
 
 #### Algorithm selection (ENTROPIC, HYBRID_PKPO_GRPO, PKPO, DR_GRPO, or GRPO) ####
 # TTT-Discover uses the entropic objective with adaptive beta.
-ADVANTAGE_ESTIMATOR_ALGORITHM="ENTROPIC"
+ADVANTAGE_ESTIMATOR_ALGORITHM="${ADVANTAGE_ESTIMATOR_ALGORITHM:-ENTROPIC}"
 export ADVANTAGE_ESTIMATOR_ALGORITHM
 
 #### Algorithm-specific reward processing ####
 # Keep evolution workflow unchanged, but allow RL-facing reward transforms to be
 # selected per algorithm. By default, entropic uses raw task reward while the
 # PPO-style estimators keep the normalized reward shaping.
-export ENTROPIC_REWARD_PROCESS_TYPE="original_reward"
-export GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
-export DR_GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
-export PKPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
-export HYBRID_PKPO_GRPO_REWARD_PROCESS_TYPE="rl_normalized_reward"
+export ENTROPIC_REWARD_PROCESS_TYPE="${ENTROPIC_REWARD_PROCESS_TYPE:-original_reward}"
+export GRPO_REWARD_PROCESS_TYPE="${GRPO_REWARD_PROCESS_TYPE:-rl_normalized_reward}"
+export DR_GRPO_REWARD_PROCESS_TYPE="${DR_GRPO_REWARD_PROCESS_TYPE:-rl_normalized_reward}"
+export PKPO_REWARD_PROCESS_TYPE="${PKPO_REWARD_PROCESS_TYPE:-rl_normalized_reward}"
+export HYBRID_PKPO_GRPO_REWARD_PROCESS_TYPE="${HYBRID_PKPO_GRPO_REWARD_PROCESS_TYPE:-rl_normalized_reward}"
 
 ALG_NORMALIZED=$(printf '%s' "${ADVANTAGE_ESTIMATOR_ALGORITHM}" | tr '[:upper:]' '[:lower:]')
 case "${ALG_NORMALIZED}" in
@@ -63,20 +63,20 @@ esac
 export REWARD_PROCESS_TYPE
 
 #### PKPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
-export PKPO_K=4
-export PKPO_ESTIMATOR_TYPE="sloo_minus_one"
+export PKPO_K="${PKPO_K:-4}"
+export PKPO_ESTIMATOR_TYPE="${PKPO_ESTIMATOR_TYPE:-sloo_minus_one}"
 
 #### Hybrid PKPO/GRPO parameters ####
 # The hybrid mixes normalized scalar advantages:
 #   (1 - alpha) * GRPO-side + alpha * PKPO-side
-export HYBRID_ALPHA=0.5
-export HYBRID_ALPHA_ANNEAL_STEP=200
-export HYBRID_ALPHA_ANNEAL_TARGET=0.8
-export HYBRID_GRPO_VARIANT="grpo"
+export HYBRID_ALPHA="${HYBRID_ALPHA:-0.5}"
+export HYBRID_ALPHA_ANNEAL_STEP="${HYBRID_ALPHA_ANNEAL_STEP:-200}"
+export HYBRID_ALPHA_ANNEAL_TARGET="${HYBRID_ALPHA_ANNEAL_TARGET:-0.8}"
+export HYBRID_GRPO_VARIANT="${HYBRID_GRPO_VARIANT:-grpo}"
 
 #### Entropic-specific parameters (passed to general_pacevolve.sh via env vars) ####
 # TTT-main / TTT-Discover uses gamma = ln(2) for the adaptive beta KL budget.
-export ENTROPIC_KL_CONSTRAINT=0.6931471805599453
+export ENTROPIC_KL_CONSTRAINT="${ENTROPIC_KL_CONSTRAINT:-0.6931471805599453}"
 
 #### GRPO-specific parameters (passed to general_pacevolve.sh via env vars) ####
 # Use ADVANTAGE_ESTIMATOR_ALGORITHM=GRPO for vanilla GRPO
@@ -84,43 +84,49 @@ export ENTROPIC_KL_CONSTRAINT=0.6931471805599453
 # Use ADVANTAGE_ESTIMATOR_ALGORITHM=HYBRID_PKPO_GRPO for the blended estimator.
 
 #### PACEvolve workflow parameters ####
-export PACEVOLVE_BACKTRACK_FREQ=-1
-export PACEVOLVE_BACKTRACK_LEN=5
-export PACEVOLVE_POWER_ALPHA=1.5
-export PACEVOLVE_IDEA_CAP=5
-export PACEVOLVE_MERGE_FREQ=1
-export PACEVOLVE_SUMMARIZE_FREQ=20
+export PACEVOLVE_BACKTRACK_FREQ="${PACEVOLVE_BACKTRACK_FREQ:--1}"
+export PACEVOLVE_BACKTRACK_LEN="${PACEVOLVE_BACKTRACK_LEN:-5}"
+export PACEVOLVE_POWER_ALPHA="${PACEVOLVE_POWER_ALPHA:-1.5}"
+export PACEVOLVE_IDEA_CAP="${PACEVOLVE_IDEA_CAP:-5}"
+export PACEVOLVE_MERGE_FREQ="${PACEVOLVE_MERGE_FREQ:-1}"
+export PACEVOLVE_SUMMARIZE_FREQ="${PACEVOLVE_SUMMARIZE_FREQ:-20}"
 
 #### Rollout overrides for quicker iterations ####
-export PACEVOLVE_NUM_ROLLOUT=25600
-export PACEVOLVE_ROLLOUT_BATCH_SIZE=1
-export PACEVOLVE_N_SAMPLES_PER_PROMPT=8
-export PACEVOLVE_ROLLOUT_MAX_RESPONSE_LEN=16384
-export PACEVOLVE_MAX_CONCURRENT_EVALS=16
+export PACEVOLVE_NUM_ROLLOUT="${PACEVOLVE_NUM_ROLLOUT:-25600}"
+export PACEVOLVE_ROLLOUT_BATCH_SIZE="${PACEVOLVE_ROLLOUT_BATCH_SIZE:-1}"
+export PACEVOLVE_N_SAMPLES_PER_PROMPT="${PACEVOLVE_N_SAMPLES_PER_PROMPT:-8}"
+export PACEVOLVE_ROLLOUT_MAX_RESPONSE_LEN="${PACEVOLVE_ROLLOUT_MAX_RESPONSE_LEN:-16384}"
+export PACEVOLVE_MAX_CONCURRENT_EVALS="${PACEVOLVE_MAX_CONCURRENT_EVALS:-16}"
 
 #### Random seed ####
-SEED=3407
+SEED="${SEED:-3407}"
 
 #### Additional note for file names ####
-NOTE="_eplb"
+NOTE="${NOTE:-_eplb}"
 
 #### Dataset location ####
 # Must contain expert-load.json (download from Hugging Face - see pacevolve/tasks/eplb/README.md)
 EPLB_DATA_PATH="${EPLB_DATA_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pacevolve/tasks/eplb/data}"
+MODEL_LOCAL_PATH="${MODEL_LOCAL_PATH:-}"
+FORCE_DOWNLOAD="${FORCE_DOWNLOAD:-0}"
 
 #### API key for PACEvolve gym's API model (Gemini/OpenAI/Anthropic) ####
 # export GOOGLE_API_KEY="your_gemini_key"
 
 #### Replace with your own wandb settings ####
-WANDB_API_KEY=aaa
-WANDB_ENTITY=bbb
-WANDB_PROJECT=ccc
+WANDB_API_KEY="${WANDB_API_KEY:-aaa}"
+WANDB_ENTITY="${WANDB_ENTITY:-bbb}"
+WANDB_PROJECT="${WANDB_PROJECT:-ccc}"
 
 ########################## END CONFIGURATION SECTION ##########################
 
 POSTFIX_STR="_seed${SEED}${NOTE}"
 
-if [ "$SMALL_MODEL_NAME" = "dpsk_distill_qwen3_8b" ]; then
+if [ "$SMALL_MODEL_NAME" = "dpsk_prorl_v2_1.5b" ]; then
+    MODEL_FAMILY="nvidia"
+    MODEL_NAME="Nemotron-Research-Reasoning-Qwen-1.5B"
+    models_file_name="deepseek-r1-distill-qwen-1.5B.sh"
+elif [ "$SMALL_MODEL_NAME" = "dpsk_distill_qwen3_8b" ]; then
     MODEL_FAMILY="deepseek-ai"
     MODEL_NAME="DeepSeek-R1-0528-Qwen3-8B"
     models_file_name="qwen3-8B.sh"
@@ -216,25 +222,32 @@ PY
 
 ########################## MODEL SETUP #############################
 
-FORCE_DOWNLOAD=0
-if [ -d "$SAVE_SHM_DIR/$MODEL_NAME" ] && [ -f "$SAVE_SHM_DIR/$MODEL_NAME/config.json" ] && [ $FORCE_DOWNLOAD -eq 0 ]; then
+if [ -d "$SAVE_SHM_DIR/$MODEL_NAME" ] && [ -f "$SAVE_SHM_DIR/$MODEL_NAME/config.json" ] && [ "${FORCE_DOWNLOAD}" -eq 0 ]; then
     echo "Model $MODEL_NAME already exists at $SAVE_SHM_DIR/$MODEL_NAME, skipping download"
 else
     if [ -d "$SAVE_SHM_DIR/$MODEL_NAME" ]; then
         echo "Incomplete model directory found at $SAVE_SHM_DIR/$MODEL_NAME, deleting and re-downloading"
         rm -rf "$SAVE_SHM_DIR/$MODEL_NAME"
     fi
-    echo "Downloading model $MODEL_NAME to current directory first..."
-    hf download $MODEL_FAMILY/$MODEL_NAME --local-dir ./$MODEL_NAME
-
     mkdir -p $SAVE_SHM_DIR
-    echo "copy model from ./$MODEL_NAME to $SAVE_SHM_DIR/$MODEL_NAME"
-    cp -r $MODEL_NAME $SAVE_SHM_DIR/
-    echo "Model download and move completed"
+    if [ -n "${MODEL_LOCAL_PATH}" ]; then
+        if [ ! -d "${MODEL_LOCAL_PATH}" ]; then
+            echo "MODEL_LOCAL_PATH does not exist: ${MODEL_LOCAL_PATH}"
+            exit 1
+        fi
+        echo "Copying model ${MODEL_NAME} from local path ${MODEL_LOCAL_PATH}"
+        cp -R "${MODEL_LOCAL_PATH}" "$SAVE_SHM_DIR/$MODEL_NAME"
+    else
+        echo "Downloading model $MODEL_NAME to current directory first..."
+        hf download $MODEL_FAMILY/$MODEL_NAME --local-dir ./$MODEL_NAME
+        echo "copy model from ./$MODEL_NAME to $SAVE_SHM_DIR/$MODEL_NAME"
+        cp -r $MODEL_NAME $SAVE_SHM_DIR/
+        echo "Model download and move completed"
+    fi
 fi
 
 source scripts/models/${models_file_name}
-if [ ! -d "$SAVE_SHM_DIR/${MODEL_NAME}_torch_dist" ] || [ $FORCE_DOWNLOAD -eq 1 ]; then
+if [ ! -d "$SAVE_SHM_DIR/${MODEL_NAME}_torch_dist" ] || [ "${FORCE_DOWNLOAD}" -eq 1 ]; then
     echo "Converting HF model to torch dist format..."
     PYTHONPATH=/root/Megatron-LM python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]} --hf-checkpoint $SAVE_SHM_DIR/$MODEL_NAME --save $SAVE_SHM_DIR/${MODEL_NAME}_torch_dist
     echo "Conversion completed, torch dist model saved at $SAVE_SHM_DIR/${MODEL_NAME}_torch_dist"

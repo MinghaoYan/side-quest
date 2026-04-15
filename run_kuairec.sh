@@ -11,7 +11,7 @@ KUAIREC_CONFIG_ID="${KUAIREC_CONFIG_ID:-1}"
 
 IS_TRAINING="${IS_TRAINING:-True}"
 KUAIREC_MAX_ITERS="${KUAIREC_MAX_ITERS:-2000}"
-KUAIREC_EVAL_TIMEOUT="${KUAIREC_EVAL_TIMEOUT:-2400}"
+KUAIREC_EVAL_TIMEOUT="${KUAIREC_EVAL_TIMEOUT:-1200}"
 KUAIREC_RECOMPILE_TIMEOUT="${KUAIREC_RECOMPILE_TIMEOUT:-60}"
 
 export ADVANTAGE_ESTIMATOR_ALGORITHM="${ADVANTAGE_ESTIMATOR_ALGORITHM:-HYBRID_PKPO_GRPO}"
@@ -46,16 +46,17 @@ export PACEVOLVE_ROLLOUT_NUM_GPUS_PER_ENGINE="${PACEVOLVE_ROLLOUT_NUM_GPUS_PER_E
 export PACEVOLVE_EVAL_GPU_IDS="${PACEVOLVE_EVAL_GPU_IDS:-8,9,10,11,12,13,14,15}"
 export PACEVOLVE_MAX_CONCURRENT_EVALS="${PACEVOLVE_MAX_CONCURRENT_EVALS:-8}"
 
-export PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE="${PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE:-2}"
+export PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE="${PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE:-4}"
 export PACEVOLVE_PIPELINE_MODEL_PARALLEL_SIZE="${PACEVOLVE_PIPELINE_MODEL_PARALLEL_SIZE:-1}"
-export PACEVOLVE_CONTEXT_PARALLEL_SIZE="${PACEVOLVE_CONTEXT_PARALLEL_SIZE:-2}"
+export PACEVOLVE_CONTEXT_PARALLEL_SIZE="${PACEVOLVE_CONTEXT_PARALLEL_SIZE:-1}"
 export PACEVOLVE_EXPERT_MODEL_PARALLEL_SIZE="${PACEVOLVE_EXPERT_MODEL_PARALLEL_SIZE:-1}"
 export PACEVOLVE_EXPERT_TENSOR_PARALLEL_SIZE="${PACEVOLVE_EXPERT_TENSOR_PARALLEL_SIZE:-1}"
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 SEED="${SEED:-3407}"
 NOTE="${NOTE:-_kuairec}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+MODEL_LOCAL_PATH="${MODEL_LOCAL_PATH:-}"
+FORCE_DOWNLOAD="${FORCE_DOWNLOAD:-0}"
 
 WANDB_API_KEY="${WANDB_API_KEY:-aaa}"
 WANDB_ENTITY="${WANDB_ENTITY:-bbb}"
@@ -65,7 +66,11 @@ WANDB_PROJECT="${WANDB_PROJECT:-ccc}"
 
 POSTFIX_STR="_seed${SEED}${NOTE}"
 
-if [ "${SMALL_MODEL_NAME}" = "dpsk_distill_qwen3_8b" ]; then
+if [ "${SMALL_MODEL_NAME}" = "dpsk_prorl_v2_1.5b" ]; then
+    MODEL_FAMILY="nvidia"
+    MODEL_NAME="Nemotron-Research-Reasoning-Qwen-1.5B"
+    models_file_name="deepseek-r1-distill-qwen-1.5B.sh"
+elif [ "${SMALL_MODEL_NAME}" = "dpsk_distill_qwen3_8b" ]; then
     MODEL_FAMILY="deepseek-ai"
     MODEL_NAME="DeepSeek-R1-0528-Qwen3-8B"
     models_file_name="qwen3-8B.sh"
@@ -162,7 +167,6 @@ if [ ! -f "${KUAIREC_DATA_PATH}" ]; then
     exit 1
 fi
 
-FORCE_DOWNLOAD=0
 if [ -d "${SAVE_SHM_DIR}/${MODEL_NAME}" ] && [ -f "${SAVE_SHM_DIR}/${MODEL_NAME}/config.json" ] && [ "${FORCE_DOWNLOAD}" -eq 0 ]; then
     echo "Model ${MODEL_NAME} already exists at ${SAVE_SHM_DIR}/${MODEL_NAME}, skipping download"
 else
@@ -170,9 +174,19 @@ else
         echo "Incomplete model directory found at ${SAVE_SHM_DIR}/${MODEL_NAME}, deleting and re-downloading"
         rm -rf "${SAVE_SHM_DIR:?}/${MODEL_NAME}"
     fi
-    echo "Downloading model ${MODEL_NAME}..."
-    hf download "${MODEL_FAMILY}/${MODEL_NAME}" --local-dir "./${MODEL_NAME}"
-    cp -r "${MODEL_NAME}" "${SAVE_SHM_DIR}/"
+    mkdir -p "${SAVE_SHM_DIR}"
+    if [ -n "${MODEL_LOCAL_PATH}" ]; then
+        if [ ! -d "${MODEL_LOCAL_PATH}" ]; then
+            echo "MODEL_LOCAL_PATH does not exist: ${MODEL_LOCAL_PATH}"
+            exit 1
+        fi
+        echo "Copying model ${MODEL_NAME} from local path ${MODEL_LOCAL_PATH}"
+        cp -R "${MODEL_LOCAL_PATH}" "${SAVE_SHM_DIR}/${MODEL_NAME}"
+    else
+        echo "Downloading model ${MODEL_NAME}..."
+        hf download "${MODEL_FAMILY}/${MODEL_NAME}" --local-dir "./${MODEL_NAME}"
+        cp -r "${MODEL_NAME}" "${SAVE_SHM_DIR}/"
+    fi
 fi
 
 source "scripts/models/${models_file_name}"

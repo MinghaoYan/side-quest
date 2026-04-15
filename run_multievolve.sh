@@ -70,6 +70,8 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 MULTIEVOLVE_DATA_PATH="${MULTIEVOLVE_DATA_PATH:-}"
 MULTIEVOLVE_SOURCE_DATASET_DIR="${MULTIEVOLVE_SOURCE_DATASET_DIR:-}"
 MULTIEVOLVE_AUTO_DOWNLOAD="${MULTIEVOLVE_AUTO_DOWNLOAD:-0}"
+MODEL_LOCAL_PATH="${MODEL_LOCAL_PATH:-}"
+FORCE_DOWNLOAD="${FORCE_DOWNLOAD:-0}"
 
 WANDB_API_KEY="${WANDB_API_KEY:-aaa}"
 WANDB_ENTITY="${WANDB_ENTITY:-bbb}"
@@ -79,7 +81,11 @@ WANDB_PROJECT="${WANDB_PROJECT:-ccc}"
 
 POSTFIX_STR="_seed${SEED}${NOTE}"
 
-if [ "${SMALL_MODEL_NAME}" = "dpsk_distill_qwen3_8b" ]; then
+if [ "${SMALL_MODEL_NAME}" = "dpsk_prorl_v2_1.5b" ]; then
+    MODEL_FAMILY="nvidia"
+    MODEL_NAME="Nemotron-Research-Reasoning-Qwen-1.5B"
+    models_file_name="deepseek-r1-distill-qwen-1.5B.sh"
+elif [ "${SMALL_MODEL_NAME}" = "dpsk_distill_qwen3_8b" ]; then
     MODEL_FAMILY="deepseek-ai"
     MODEL_NAME="DeepSeek-R1-0528-Qwen3-8B"
     models_file_name="qwen3-8B.sh"
@@ -225,7 +231,6 @@ with open(out_cfg, "w") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
 
-FORCE_DOWNLOAD=0
 if [ -d "${SAVE_SHM_DIR}/${MODEL_NAME}" ] && [ -f "${SAVE_SHM_DIR}/${MODEL_NAME}/config.json" ] && [ "${FORCE_DOWNLOAD}" -eq 0 ]; then
     echo "Model ${MODEL_NAME} already exists at ${SAVE_SHM_DIR}/${MODEL_NAME}, skipping download"
 else
@@ -233,9 +238,19 @@ else
         echo "Incomplete model directory found at ${SAVE_SHM_DIR}/${MODEL_NAME}, deleting and re-downloading"
         rm -rf "${SAVE_SHM_DIR:?}/${MODEL_NAME}"
     fi
-    echo "Downloading model ${MODEL_NAME}..."
-    hf download "${MODEL_FAMILY}/${MODEL_NAME}" --local-dir "./${MODEL_NAME}"
-    cp -r "${MODEL_NAME}" "${SAVE_SHM_DIR}/"
+    mkdir -p "${SAVE_SHM_DIR}"
+    if [ -n "${MODEL_LOCAL_PATH}" ]; then
+        if [ ! -d "${MODEL_LOCAL_PATH}" ]; then
+            echo "MODEL_LOCAL_PATH does not exist: ${MODEL_LOCAL_PATH}"
+            exit 1
+        fi
+        echo "Copying model ${MODEL_NAME} from local path ${MODEL_LOCAL_PATH}"
+        cp -R "${MODEL_LOCAL_PATH}" "${SAVE_SHM_DIR}/${MODEL_NAME}"
+    else
+        echo "Downloading model ${MODEL_NAME}..."
+        hf download "${MODEL_FAMILY}/${MODEL_NAME}" --local-dir "./${MODEL_NAME}"
+        cp -r "${MODEL_NAME}" "${SAVE_SHM_DIR}/"
+    fi
 fi
 
 source "scripts/models/${models_file_name}"
