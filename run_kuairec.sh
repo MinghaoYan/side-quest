@@ -66,18 +66,28 @@ WANDB_PROJECT="${WANDB_PROJECT:-ccc}"
 
 POSTFIX_STR="_seed${SEED}${NOTE}"
 
-if [ "${SMALL_MODEL_NAME}" = "dpsk_prorl_v2_1.5b" ]; then
-    MODEL_FAMILY="nvidia"
-    MODEL_NAME="Nemotron-Research-Reasoning-Qwen-1.5B"
-    models_file_name="deepseek-r1-distill-qwen-1.5B.sh"
-elif [ "${SMALL_MODEL_NAME}" = "dpsk_distill_qwen3_8b" ]; then
-    MODEL_FAMILY="deepseek-ai"
-    MODEL_NAME="DeepSeek-R1-0528-Qwen3-8B"
-    models_file_name="qwen3-8B.sh"
-else
-    echo "Unknown SMALL_MODEL_NAME: ${SMALL_MODEL_NAME}"
-    exit 1
-fi
+case "${SMALL_MODEL_NAME}" in
+    dpsk_prorl_v2_1.5b)
+        MODEL_FAMILY="nvidia"
+        MODEL_NAME="Nemotron-Research-Reasoning-Qwen-1.5B"
+        models_file_name="deepseek-r1-distill-qwen-1.5B.sh"
+        ;;
+    dpsk_distill_qwen3_8b)
+        MODEL_FAMILY="deepseek-ai"
+        MODEL_NAME="DeepSeek-R1-0528-Qwen3-8B"
+        models_file_name="qwen3-8B.sh"
+        ;;
+    qwen3_4b_thinking_2507|qwen3-4B-Thinking-2507|Qwen3-4B-Thinking-2507)
+        MODEL_FAMILY="Qwen"
+        MODEL_NAME="Qwen3-4B-Thinking-2507"
+        models_file_name="qwen3-4B-Thinking-2507.sh"
+        ;;
+    *)
+        echo "Unknown SMALL_MODEL_NAME: ${SMALL_MODEL_NAME}"
+        echo "Supported values: dpsk_prorl_v2_1.5b, dpsk_distill_qwen3_8b, qwen3_4b_thinking_2507"
+        exit 1
+        ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK_ROOT="${ROOT_DIR}/pacevolve/tasks/${KUAIREC_TASK_ID}"
