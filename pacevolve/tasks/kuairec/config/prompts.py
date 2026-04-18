@@ -48,8 +48,9 @@ The benchmark keeps the experimental scaffold fixed:
 - Epochs: fixed at 16
 - Objective: fixed sampled-softmax next-item prediction
 - Evaluation: fixed full-catalog ranking with NDCG@10, NDCG@50, HR@10, HR@50, and MRR
-- Runtime budget: fixed wall-clock budget with a relaxed 2400s task timeout
+- Runtime budget: fixed wall-clock budget with a relaxed 1200s task timeout
 - Reward-hacking guardrail: fixed task-local LLM review that rejects future-label leakage, hidden-state introspection, and similar evaluator exploits
+- DO NOT CHANGE MODEL SIZE SIGNIFICANTLY AS THAT MIGHT CAUSE OOM. YOU ARE TRAINING ON A SINGLE 40GB A100 GPU.
 
 The evolvable surface is intentionally narrower:
 
