@@ -1166,6 +1166,12 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 help="Disable model-generated post-eval analyzer scripts in PACEvolve gym.",
             )
             parser.add_argument(
+                "--pacevolve-gym-disable-analysis",
+                action="store_true",
+                default=False,
+                help="Disable post-eval analysis and diagnosis in PACEvolve gym.",
+            )
+            parser.add_argument(
                 "--pacevolve-gym-seed",
                 type=int,
                 default=1234,

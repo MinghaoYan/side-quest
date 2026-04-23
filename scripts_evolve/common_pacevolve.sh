@@ -47,6 +47,21 @@ ROLLOUT_MAX_CONTEXT_LEN="${PACEVOLVE_ROLLOUT_MAX_CONTEXT_LEN:-}"
 ROLLOUT_MAX_PROMPT_LEN="${PACEVOLVE_ROLLOUT_MAX_PROMPT_LEN:-}"
 SGLANG_MEM_FRACTION_STATIC="${PACEVOLVE_SGLANG_MEM_FRACTION_STATIC:-0.4}"
 SGLANG_SERVER_CONCURRENCY="${PACEVOLVE_SGLANG_SERVER_CONCURRENCY:-}"
+PACEVOLVE_SKIP_ANALYSIS="${PACEVOLVE_SKIP_ANALYSIS:-1}"
+PACEVOLVE_SKIP_ANALYSIS_LOWER="$(printf '%s' "${PACEVOLVE_SKIP_ANALYSIS}" | tr '[:upper:]' '[:lower:]')"
+
+case "${PACEVOLVE_SKIP_ANALYSIS_LOWER}" in
+  1|true|yes|on)
+    PACEVOLVE_ANALYSIS_ARGS=(--pacevolve-gym-disable-analysis)
+    ;;
+  0|false|no|off)
+    PACEVOLVE_ANALYSIS_ARGS=()
+    ;;
+  *)
+    echo "Invalid PACEVOLVE_SKIP_ANALYSIS=${PACEVOLVE_SKIP_ANALYSIS}. Use 0/1, true/false, yes/no, or on/off."
+    exit 1
+    ;;
+esac
 
 if [ "$IS_TRAINING" = "False" ] || [ "$IS_TRAINING" = "false" ]; then
     DEBUG_ROLLOUT_ONLY="--debug-rollout-only"
@@ -55,6 +70,7 @@ else
     DEBUG_ROLLOUT_ONLY=""
     echo "Normal training mode (IS_TRAINING=$IS_TRAINING)"
 fi
+echo "PACEvolve post-eval analysis skipped: ${PACEVOLVE_SKIP_ANALYSIS}"
 
 mkdir -p "${CKPT_DIR}"
 
@@ -106,6 +122,10 @@ PACEVOLVE_ROLLOUT_ARGS=(
   --pacevolve-gym-merge-freq ${PACEVOLVE_MERGE_FREQ:-1}
   --pacevolve-gym-summarize-freq ${PACEVOLVE_SUMMARIZE_FREQ:-20}
 )
+
+if [ ${#PACEVOLVE_ANALYSIS_ARGS[@]} -gt 0 ]; then
+  PACEVOLVE_ROLLOUT_ARGS+=("${PACEVOLVE_ANALYSIS_ARGS[@]}")
+fi
 
 if [ -n "${INITIAL_PROGRAM}" ]; then
   PACEVOLVE_ROLLOUT_ARGS+=(--pacevolve-gym-initial-program "${INITIAL_PROGRAM}")

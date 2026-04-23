@@ -47,7 +47,11 @@ class PACEvolveGymManager:
             summarize_freq=getattr(args, "pacevolve_gym_summarize_freq", 20),
             n_samples_per_prompt=getattr(args, "n_samples_per_prompt", 1),
         )
-        if getattr(args, "pacevolve_gym_disable_analysis_script", False):
+        if getattr(args, "pacevolve_gym_disable_analysis", False):
+            gym_kwargs["enable_post_eval_analysis"] = False
+            gym_kwargs["analysis_generate_script"] = False
+            gym_kwargs["analysis_diagnosis_enabled"] = False
+        elif getattr(args, "pacevolve_gym_disable_analysis_script", False):
             gym_kwargs["analysis_generate_script"] = False
 
         self.gym = PACEvolveSingleTaskGym(**gym_kwargs)
