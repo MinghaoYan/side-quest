@@ -152,7 +152,7 @@ class DataIterator:
         return self
 
 
-def get_data_iterator(args, model, rollout_data):
+def get_data_iterator(args, model, rollout_data, max_tokens_per_gpu: Optional[int] = None):
     """
     Creates data iterators for training and log probability evaluation, supporting both static and dynamic batch sizes,
     with optional virtual pipeline parallelism and sequence length balancing.
@@ -192,7 +192,8 @@ def get_data_iterator(args, model, rollout_data):
         num_microbatches = [num_local_gbs // args.micro_batch_size for _ in range(num_steps_per_rollout)]
         data_iterator = _generate_data_iterator(rollout_data, args.micro_batch_size)
     else:
-        assert args.max_tokens_per_gpu is not None
+        token_budget = args.max_tokens_per_gpu if max_tokens_per_gpu is None else max_tokens_per_gpu
+        assert token_budget is not None
         # calculate the number of mirobatches for each step
         samples = rollout_data["total_lengths"]
         assert len(samples) == num_local_samples
@@ -200,7 +201,7 @@ def get_data_iterator(args, model, rollout_data):
         for i in range(num_steps_per_rollout):
             start, end = i * num_local_gbs, (i + 1) * num_local_gbs
             num_microbatches.append(
-                get_minimum_num_micro_batch_size(samples[start:end], args.max_tokens_per_gpu * cp_size)
+                get_minimum_num_micro_batch_size(samples[start:end], token_budget * cp_size)
             )
 
         num_microbatches = torch.tensor(num_microbatches, dtype=torch.int, device=torch.cuda.current_device())

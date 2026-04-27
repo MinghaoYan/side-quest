@@ -201,6 +201,33 @@ if task_id == "eplb":
 elif task_id == "kuairec":
     dataset_csv = os.environ.get("KUAIREC_DATASET_CSV", variables.get("dataset_csv"))
     variables["dataset_csv"] = abs_path(dataset_csv)
+    prompt_cfg = cfg.setdefault("prompt", {})
+    llm_cfg = cfg.setdefault("llm", {})
+
+    def env_int(name):
+        value = os.environ.get(name)
+        if value is None or value == "":
+            return None
+        return int(value)
+
+    def env_bool(name):
+        value = os.environ.get(name)
+        if value is None or value == "":
+            return None
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    if (value := env_int("THETAEVOLVE_KUAIREC_LLM_MAX_TOKENS")) is not None:
+        llm_cfg["max_tokens"] = value
+    if (value := env_int("THETAEVOLVE_KUAIREC_PROMPT_NUM_TOP_PROGRAMS")) is not None:
+        prompt_cfg["num_top_programs"] = value
+    if (value := env_int("THETAEVOLVE_KUAIREC_PROMPT_NUM_DIVERSE_PROGRAMS")) is not None:
+        prompt_cfg["num_diverse_programs"] = value
+    if (value := env_int("THETAEVOLVE_KUAIREC_PROMPT_NUM_INSPIRATION_PROGRAMS")) is not None:
+        prompt_cfg["num_inspiration_programs"] = value
+    if (value := env_bool("THETAEVOLVE_KUAIREC_PROMPT_INCLUDE_ARTIFACTS")) is not None:
+        prompt_cfg["include_artifacts"] = value
+    if (value := env_int("THETAEVOLVE_KUAIREC_PROMPT_MAX_ARTIFACT_BYTES")) is not None:
+        prompt_cfg["max_artifact_bytes"] = value
 elif task_id == "multievolve_extrapolate":
     data_dir = os.environ.get("MULTIEVOLVE_DATA_PATH", variables.get("data_dir"))
     variables["data_dir"] = abs_path(data_dir)

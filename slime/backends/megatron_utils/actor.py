@@ -289,6 +289,17 @@ class MegatronTrainRayActor(TrainRayActor):
     def train_actor(self, rollout_id, rollout_data):
         # Create data iterator for log_probs and train.
         data_iterator, num_microbatches = get_data_iterator(self.args, self.model, rollout_data)
+        log_prob_data_iterator, log_prob_num_microbatches = data_iterator, num_microbatches
+        if (
+            self.args.use_dynamic_batch_size
+            and self.args.log_probs_max_tokens_per_gpu != self.args.max_tokens_per_gpu
+        ):
+            log_prob_data_iterator, log_prob_num_microbatches = get_data_iterator(
+                self.args,
+                self.model,
+                rollout_data,
+                max_tokens_per_gpu=self.args.log_probs_max_tokens_per_gpu,
+            )
 
         with timer("train"):
             if self.args.compute_advantages_and_returns:
@@ -298,8 +309,8 @@ class MegatronTrainRayActor(TrainRayActor):
                     rollout_data.update(
                         self.compute_log_prob(
                             "ref",
-                            data_iterator,
-                            num_microbatches,
+                            log_prob_data_iterator,
+                            log_prob_num_microbatches,
                             store_prefix="ref_",
                         )
                     )
@@ -309,8 +320,8 @@ class MegatronTrainRayActor(TrainRayActor):
                 rollout_data.update(
                     self.compute_log_prob(
                         "old_actor" if self.args.keep_old_actor else "actor",
-                        data_iterator,
-                        num_microbatches,
+                        log_prob_data_iterator,
+                        log_prob_num_microbatches,
                         store_prefix="",
                     )
                 )
