@@ -22,6 +22,28 @@ from pacevolve.evolving_gym import PACEvolveSingleTaskGym
 from slime.rollout.rm_hub.pacevolve_gym_rm import set_gym as _set_pacevolve_gym_to_rm
 
 
+logger = logging.getLogger(__name__)
+
+
+def _prompt_exceeds_max_length(args, tokenizer, prompt: str, source: str) -> bool:
+    max_length = getattr(args, "rollout_max_prompt_len", None)
+    if max_length is None:
+        return False
+
+    prompt_length = len(tokenizer(prompt, add_special_tokens=False)["input_ids"])
+    if prompt_length <= max_length:
+        return False
+
+    logger.warning(
+        "%s generated an overlong prompt with %s tokens; "
+        "skipping it because rollout_max_prompt_len=%s.",
+        source,
+        prompt_length,
+        max_length,
+    )
+    return True
+
+
 class PACEvolveGymManager:
     """Wrapper for PACEvolveSingleTaskGym, same interface as EvolvingGymManager."""
 
@@ -74,7 +96,7 @@ class PACEvolveGymManager:
         print(f"[PACEvolveGymManager] Initialized successfully")
         _set_pacevolve_gym_to_rm(self.gym)
 
-    def _build_sample(self, prompt_dict, parent_program) -> Sample:
+    def _build_sample(self, prompt_dict, parent_program) -> Optional[Sample]:
         system_txt = prompt_dict.get("system") or ""
         user_txt = prompt_dict.get("user") or ""
 
@@ -92,6 +114,9 @@ class PACEvolveGymManager:
             )
         else:
             prompt_str = (system_txt + "\n\n" + user_txt).strip()
+
+        if _prompt_exceeds_max_length(self.args, tokenizer, prompt_str, "PACEvolveGymManager"):
+            return None
 
         return Sample(
             prompt=prompt_str,
@@ -174,7 +199,6 @@ class EvolvingGymManager:
         # prompt_dict like {'system': ..., 'user': ...}
         apply_chat_template = self.args.apply_chat_template
         tokenizer = self.tokenizer
-        max_length = self.args.rollout_max_prompt_len
         tool_key = self.args.tool_key # TODO: double check what's tool key doing here?
         if apply_chat_template:
             if tool_key is not None:
@@ -192,11 +216,8 @@ class EvolvingGymManager:
             assert False, "We need apply chat template now"
             prompt_str = (system_txt + "\n\n" + user_txt).strip()
 
-        # Optional length check (consistent with global, no filtering by default)
-        if max_length is not None:
-            assert False, "For now, we don't discard overlong prompts"
-            if len(tokenizer(prompt_dict)["input_ids"]) > max_length:
-                return None
+        if _prompt_exceeds_max_length(self.args, tokenizer, prompt_str, "EvolvingGymManager"):
+            return None
         
         return Sample(
             prompt=prompt_str,
