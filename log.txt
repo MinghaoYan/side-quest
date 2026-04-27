@@ -1,18 +1,10 @@
-Rollout generation: 100%|██████████| 8/8 [11:41<00:00, 87.64s/it]
-Rollout generation: 100%|██████████| 8/8 [11:41<00:00, 87.64s/it]
-(RolloutManager pid=659942) INFO:pacevolve.evolving_gym.single_task_gym:[PACEvolve] Flushed 8 temp programs to database
-(RolloutManager pid=659942) INFO:pacevolve.evolving_gym.pacevolve_recorder:PACEvolveRecorder: recorded step 5 to /workspa
-ce/logs/qwen3_4b_thinking_2507_pacevolve_eplb_entropic_cfg1_seed3407_eplb/records/step_00005
-(SGLangEngine pid=660217) [2026-04-23 05:16:44] INFO:     172.17.0.2:54400 - "POST /abort_request HTTP/1.1" 200 OK
-[TRAIN-OOM] role=actor rollout_id=5 Quitting job cleanly after CUDA OOM during training.
-ray::MegatronTrainRayActor.train() (pid=659198, ip=172.17.0.2, actor_id=69e8cfb6b0ca69e41dbe557802000000, repr=<slime.bac
-kends.megatron_utils.actor.MegatronTrainRayActor object at 0x7f830bf41550>)
+ object at 0x7f9509de1610>)   
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
     return self.train_actor(rollout_id, rollout_data)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
     self.compute_log_prob(
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -61,8 +53,4 @@ kends.megatron_utils.actor.MegatronTrainRayActor object at 0x7f830bf41550>)
   File "/root/Megatron-LM/megatron/core/transformer/module.py", line 189, in float_conversion
     val = val.float()
           ^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 5.47 GiB. GPU 1 has a total capacity of 39.38 GiB of which 1.20 GiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 14.75 GiB is allocated by PyTorch, and 19.73 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
-(SGLangEngine pid=660218) [2026-04-23 05:16:42] INFO:     172.17.0.2:51444 - "GET /health_generate HTTP/1.1" 200 OK
-(SGLangEngine pid=660218) [2026-04-23 05:16:43] INFO:     172.17.0.2:48618 - "GET /health HTTP/1.1" 200 OK
-(SGLangEngine pid=660218) [2026-04-23 05:16:44] INFO:     172.17.0.2:48622 - "POST /abort_request HTTP/1.1" 200 OK
-(SGLangEngine pid=660218) [2026-04-23 05:16:41 TP0] Prefill batch. #new-seq: 1, #new-token: 1, #cached-token: 0, token usage: 0.00, #running-req: 0, #queue-req: 0,
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 7.85 GiB. GPU 0 has a total capacity of 39.38 GiB of which 5.65 GiB is free. 
