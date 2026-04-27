@@ -1,10 +1,15 @@
- object at 0x7f9509de1610>)   
+(SGLangEngine pid=1353628) [2026-04-27 21:39:25] INFO:     172.17.0.2:36778 - "POST /generate HTTP/1.1" 200 OK
+(SGLangEngine pid=1353628) [2026-04-27 21:39:25] INFO:     172.17.0.2:42950 - "POST /abort_request HTTP/1.1" 200 OK
+[TRAIN-OOM] role=actor rollout_id=1 Quitting job cleanly after CUDA OOM during training.
+ray::MegatronTrainRayActor.train() (pid=1352591, ip=172.17.0.2, actor_id=edf12a55ded618aaac4522cb02000000, repr=<slime.backends.megatron_utils.actor.MegatronTrainRayActor
+ object at 0x7f6dbe43d8e0>)   
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
     return self.train_actor(rollout_id, rollout_data)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
   File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
     self.compute_log_prob(
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -53,4 +58,4 @@
   File "/root/Megatron-LM/megatron/core/transformer/module.py", line 189, in float_conversion
     val = val.float()
           ^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 7.85 GiB. GPU 0 has a total capacity of 39.38 GiB of which 5.65 GiB is free. 
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 8.23 GiB. GPU 3 has a total capacity of 39.38 GiB of which 4.97 GiB is free.
