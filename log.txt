@@ -1,56 +1,81 @@
- object at 0x7f9509de1610>)   
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
-    return self.train_actor(rollout_id, rollout_data)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
-    self.compute_log_prob(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 232, in compute_log_prob
-    return forward_only(
-           ^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+[slime-pp_0] Update weights: 15it [00:01, 18.33it/s]
+(MegatronTrainRayActor pid=3719496)
+[slime-pp_0] Update weights: 17it [00:01, 12.49it/s]
+(MegatronTrainRayActor pid=3719496) Memory-Usage after update_weights: {'gpu': '0', 'total_GB': 39.38, 'free_
+GB': 28.5, 'used_GB': 10.88}  
+(SGLangEngine pid=3720694) [2026-04-27 19:39:49] INFO:     172.17.0.2:36740 - "POST /continue_generation HTTP
+/1.1" 200 OK
+Traceback (most recent call last):
+  File "/workspace/train.py", line 149, in <module>
+    train(args)
+  File "/workspace/train.py", line 78, in train
+    rollout_data_ref = ray.get(rollout_manager.generate.remote(rollout_id))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/auto_init_hook.py", line 22, in auto_init_wrappe
+r
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/client_mode_hook.py", line 104, in wrapper
     return func(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/model.py", line 223, in forward_only
-    forward_data_store += forward_backward_func(
-                          ^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 597, in forward_backward_no_pipelining
-    output_tensor, num_tokens = forward_step(
-                                ^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 397, in forward_step
-    output_tensor, loss_func = forward_step_func(data_iterator, model)
-                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/model.py", line 189, in forward_step
-    output_tensor = model(
-                    ^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward
-    return self.module(*inputs, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 239, in forward
-    outputs = float16_to_fp32(outputs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 192, in float16_to_fp32
-    return conversion_helper(val, float_conversion)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 151, in conversion_helper
-    return conversion(val)
-           ^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 189, in float_conversion
-    val = val.float()
-          ^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 7.85 GiB. GPU 0 has a total capacity of 39.38 GiB of which 5.65 GiB is free. 
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 2858, in get
+    values, debugger_breakpoint = worker.get_objects(object_refs, timeout=timeout)
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 958, in get_objects
+    raise value.as_instanceof_cause()
+ray.exceptions.RayTaskError(AssertionError): ray::RolloutManager.generate() (pid=3720416, ip=172.17.0.2, acto
+r_id=4a19242243549a76cd2e311202000000, repr=<slime.ray.rollout.RolloutManager object at 0x7f4390d58ec0>)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/ray/rollout.py", line 85, in generate
+    data = self._get_rollout_data()
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/ray/rollout.py", line 185, in _get_rollout_data
+    data = self.generate_rollout(self.args, self.rollout_id, self.data_source, evaluation=False)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/rollout/sglang_rollout.py", line 646, in generate_rollout
+    completed_samples, aborted_samples = generate_abortable_samples(
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/rollout/sglang_rollout.py", line 669, in generate_abortable_samples
+    return run(generate_rollout_async(args, rollout_id, data_source, data_buffer=data_buffer))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/utils/async_utils.py", line 36, in run
+    return get_async_loop().run(coro)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/utils/async_utils.py", line 20, in run
+    return asyncio.run_coroutine_threadsafe(coro, self.loop).result()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/workspace/slime/rollout/sglang_rollout.py", line 329, in generate_rollout_async
+    samples = data_source(args.over_sampling_batch_size)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/ray/rollout_data_source.py", line 527, in get_samples
+    samples += super().get_samples(num_samples=num_samples)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/ray/rollout_data_source.py", line 331, in get_samples
+    prompt_sample = self.evolving_gym_manager.get_sample()
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/slime/ray/rollout_data_source.py", line 197, in get_sample
+    assert False, "For now, we don't discard overlong prompts"
+           ^^^^^
+AssertionError: For now, we don't discard overlong prompts
+(RolloutManager pid=3720416)
+Rollout generation:   0%|          | 0/8 [00:00<?, ?it/s]
+Rollout generation:   0%|          | 0/8 [00:00<?, ?it/s]
+(SGLangEngine pid=3720693) [2026-04-27 19:39:47] INFO:     172.17.0.2:55966 - "POST /init_weights_update_group HTTP/1.1" 200 OK
+(SGLangEngine pid=3720693) [2026-04-27 19:39:47] INFO:     172.17.0.2:55974 - "POST /pause_generation HTTP/1.1" 200 OK
+(SGLangEngine pid=3720693) [2026-04-27 19:39:47] INFO:     172.17.0.2:55982 - "GET /flush_cache HTTP/1.1" 200 OK
+(SGLangEngine pid=3720693) [2026-04-27 19:39:49] INFO:     172.17.0.2:56132 - "POST /update_weights_from_distributed HTTP/1.1" 200 OK [repeated 33x across cluster]
+(SGLangEngine pid=3720693) [2026-04-27 19:39:48] INFO:     172.17.0.2:56002 - "GET /health HTTP/1.1" 200 OK
+(SGLangEngine pid=3720693) [2026-04-27 19:39:49] INFO:     172.17.0.2:56146 - "POST /continue_generation HTTP/1.1" 200 OK
+(SGLangEngine pid=3720693) [2026-04-27 19:39:47 TP0] init custom process group: master_address=172.17.0.2, master_port=54341, rank_offset=3, rank=3, world_size=5, group_name=slime-pp_0, backend=nccl
+(SGLangEngine pid=3720693) [2026-04-27 19:39:47 TP1] Cache flushed successfully! [repeated 2x across cluster]
+
+---------------------------------------
+Job 'raysubmit_4QmXEZXwf8kVDPPc' failed
+---------------------------------------
