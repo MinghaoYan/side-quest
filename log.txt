@@ -1,61 +1,51 @@
-(SGLangEngine pid=1353628) [2026-04-27 21:39:25] INFO:     172.17.0.2:36778 - "POST /generate HTTP/1.1" 200 OK
-(SGLangEngine pid=1353628) [2026-04-27 21:39:25] INFO:     172.17.0.2:42950 - "POST /abort_request HTTP/1.1" 200 OK
-[TRAIN-OOM] role=actor rollout_id=1 Quitting job cleanly after CUDA OOM during training.
-ray::MegatronTrainRayActor.train() (pid=1352591, ip=172.17.0.2, actor_id=edf12a55ded618aaac4522cb02000000, repr=<slime.backends.megatron_utils.actor.MegatronTrainRayActor
- object at 0x7f6dbe43d8e0>)   
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 257, in train
-    return self.train_actor(rollout_id, rollout_data)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 310, in train_actor
-    self.compute_log_prob(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/actor.py", line 232, in compute_log_prob
-    return forward_only(
-           ^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+  (SGLangEngine pid=896677) [2026-04-27 22:23:50] INFO:     172.17.0.2:56814 - "GET /health HTTP/1.1" 200 OK
+Traceback (most recent call last):
+  File "/workspace/train.py", line 149, in <module>
+    train(args)
+  File "/workspace/train.py", line 78, in train
+    rollout_data_ref = ray.get(rollout_manager.generate.remote(rollout_id))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/auto_init_hook.py", line 22, in auto_init_wrapper
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/client_mode_hook.py", line 104, in wrapper
     return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/model.py", line 223, in forward_only
-    forward_data_store += forward_backward_func(
-                          ^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 597, in forward_backward_no_pipelining
-    output_tensor, num_tokens = forward_step(
-                                ^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 397, in forward_step
-    output_tensor, loss_func = forward_step_func(data_iterator, model)
-                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/slime/backends/megatron_utils/model.py", line 189, in forward_step
-    output_tensor = model(
-                    ^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward
-    return self.module(*inputs, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1784, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 239, in forward
-    outputs = float16_to_fp32(outputs)
-              ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 192, in float16_to_fp32
-    return conversion_helper(val, float_conversion)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 151, in conversion_helper
-    return conversion(val)
-           ^^^^^^^^^^^^^^^
-  File "/root/Megatron-LM/megatron/core/transformer/module.py", line 189, in float_conversion
-    val = val.float()
-          ^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 8.23 GiB. GPU 3 has a total capacity of 39.38 GiB of which 4.97 GiB is free.
+  
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 2858, in get
+    values, debugger_breakpoint = worker.get_objects(object_refs, timeout=timeout)
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/ray/_private/worker.py", line 960, in get_objects
+    raise value
+ray.exceptions.OutOfMemoryError: Task was killed due to the node running low on memory.
+Memory on the node (IP: 172.17.0.2, ID: 5b6e56709546cfbb655dc65c5d2b8e3dac0941b58b1016de947585ac) where the task (actor ID: f9896d49716a103958af851402000000, name=RolloutManager.__init__, pid=896400, memory used=211.66GB) was running was 1283.78GB / 1338.63GB (0.959031), which exceeds the memory usage threshold of 0.95. Ray killed this worker (ID: 0baa803daa911ef6b7cffa711562051eb9a0847e95da9975641eebb3) because it was the most recently scheduled task; to see more information about memory usage on this node, use `ray logs raylet.out -ip 172.17.0.2`. To see the logs of the worker, use `ray logs worker-0baa803daa911ef6b7cffa711562051eb9a0847e95da9975641eebb3*out -ip 172.17.0.2. Top 10 memory users:
+PID     MEM(GB) COMMAND
+896400  211.66  ray::RolloutManager.generate
+3699859 154.60  /usr/bin/python3 /workspace/pacevolve/tasks/multievolve_extrapolate/eval/evaluate_multievolve_extrap...
+895382  44.08   ray::MegatronTrainRayActor
+895558  44.01   ray::MegatronTrainRayActor
+895559  43.97   ray::MegatronTrainRayActor
+895561  42.84   ray::MegatronTrainRayActor
+896784  2.31    sglang::scheduler_TP0
+896786  2.20    sglang::scheduler_TP2
+896785  1.75    sglang::scheduler_TP1
+896787  1.75    sglang::scheduler_TP3
+Refer to the documentation on how to address the out of memory issue: https://docs.ray.io/en/latest/ray-core/scheduling/ray-oom-prevention.html. Consider provisioning more memory on this node or reducing task parallelism by requesting more CPUs per task. Set max_restarts and max_task_retries to enable retry when the task crashes due to OOM. To adjust the kill threshold, set the environment variable `RAY_memory_usage_threshold` when starting Ray. To disable worker killing, set the environment variable `RAY_memory_monitor_refresh_ms` to zero.
+(raylet) [2026-04-27 22:23:53,478 E 886011 886011] (raylet) node_manager.cc:3041: 4 Workers (tasks / actors) killed due to memory pressure (OOM), 0 Workers crashed due to other reasons at node (ID: 5b6e56709546cfbb655dc65c5d2b8e3dac0941b58b1016de947585ac, IP: 172.17.0.2) over the last time period. To see more information about the Workers killed on this node, use `ray logs raylet.out -ip 172.17.0.2`
+(raylet)
+(raylet) Refer to the documentation on how to address the out of memory issue: https://docs.ray.io/en/latest/ray-core/scheduling/ray-oom-prevention.html. Consider provisioning more memory on this node or reducing task parallelism by requesting more CPUs per task. To adjust the kill threshold, set the environment variable `RAY_memory_usage_threshold` when starting Ray. To disable worker killing, set the environment variable `RAY_memory_monitor_refresh_ms` to zero.
+
+---------------------------------------
+Job 'raysubmit_mcrDa3FR3iFWeZub' failed
+---------------------------------------
+
+Status message: Job entrypoint command failed with exit code 1, last available logs (truncated to 20,000 chars):
+895559  43.97   ray::MegatronTrainRayActor
+895561  42.84   ray::MegatronTrainRayActor
+896784  2.31    sglang::scheduler_TP0
+896786  2.20    sglang::scheduler_TP2
+896785  1.75    sglang::scheduler_TP1
+896787  1.75    sglang::scheduler_TP3
+Refer to the documentation on how to address the out of memory issue: https://docs.ray.io/en/latest/ray-core/scheduling/ray-oom-prevention.html. Consider provisioning more memory on this node or reducing task parallelism by requesting more CPUs per task. Set max_restarts and max_task_retries to enable retry when the task crashes due to OOM. To adjust the kill threshold, set the environment variable `RAY_memory_usage_threshold` when starting Ray. To disable worker killing, set the environment variable `RAY_memory_monitor_refresh_ms` to zero.
+(raylet) [2026-04-27 22:23:53,478 E 886011 886011] (raylet) node_manager.cc:3041: 4 Workers (tasks / actors) killed due to memory pressure (OOM), 0 Workers crashed due to other reasons at node (ID: 5b6e56709546cfbb655dc65c5d2b8e3dac0941b58b1016de947585ac, IP: 172.17.0.2) over the last time period. To see more information about the Workers killed on this node, use `ray logs raylet.out -ip 172.17.0.2`
+(raylet)
+(raylet) Refer to the documentation on how to address the out of memory issue: https://docs.ray.io/en/latest/ray-core/scheduling/ray-oom-prevention.html. Consider provisioning more memory on this node or reducing task parallelism by requesting more CPUs per task. To adjust the kill threshold, set the environment variable `RAY_memory_usage_threshold` when starting Ray. To disable worker killing, set the environment variable `RAY_memory_monitor_refresh_ms` to zero.
