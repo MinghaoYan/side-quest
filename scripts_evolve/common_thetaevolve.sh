@@ -207,7 +207,7 @@ if [ "${THETAEVOLVE_OPTIMIZER_CPU_OFFLOAD:-1}" = "1" ]; then
 fi
 
 WANDB_ARGS=()
-if [ "${THETAEVOLVE_USE_WANDB:-1}" = "1" ]; then
+if [ "${THETAEVOLVE_USE_WANDB:-0}" = "1" ]; then
   WANDB_ARGS=(
     --use-wandb
     --wandb-team "${WANDB_ENTITY}"
@@ -215,6 +215,8 @@ if [ "${THETAEVOLVE_USE_WANDB:-1}" = "1" ]; then
     --wandb-group "${RUN_NAME}"
     --wandb-key "${WANDB_API_KEY}"
   )
+else
+  export WANDB_MODE=disabled
 fi
 
 SGLANG_ARGS=(
@@ -269,6 +271,7 @@ RUNTIME_ENV_JSON="$(cat <<JSON
     "WANDB_CACHE_DIR": "${WANDB_CACHE_DIR}",
     "WANDB_DIR": "${WANDB_DIR}",
     "WANDB_GROUP": "${RUN_NAME}",
+    "WANDB_MODE": "${WANDB_MODE:-}",
     "TRITON_DISABLE": "1",
     "THETAEVOLVE_EVAL_GPU_IDS": "${EVAL_GPU_IDS}"
   }
