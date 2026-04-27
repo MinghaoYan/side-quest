@@ -99,6 +99,9 @@ case "${TASK}" in
       echo "Set KUAIREC_DATASET_CSV=/path/to/sasrec_format.csv or prepare the task data first."
       exit 1
     fi
+    export THETAEVOLVE_TRAIN_SEQ_LENGTH="${THETAEVOLVE_TRAIN_SEQ_LENGTH:-4096}"
+    export THETAEVOLVE_MAX_POSITION_EMBEDDINGS="${THETAEVOLVE_MAX_POSITION_EMBEDDINGS:-${THETAEVOLVE_TRAIN_SEQ_LENGTH}}"
+    export THETAEVOLVE_MAX_TOKENS_PER_GPU="${THETAEVOLVE_MAX_TOKENS_PER_GPU:-2048}"
     ;;
   multievolve|multi-evolve|multievolve_extrapolate)
     TASK_ID="multievolve_extrapolate"
