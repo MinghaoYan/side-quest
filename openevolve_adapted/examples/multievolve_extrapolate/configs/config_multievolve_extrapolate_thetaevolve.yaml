@@ -1,0 +1,86 @@
+# ThetaEvolve/OpenEvolve config for public MULTI-evolve extrapolation.
+
+variables:
+  data_dir: "pacevolve/tasks/multievolve_extrapolate/data"
+  benchmark_level: "lite"
+  benchmark_protocol: "paper"
+
+score_transform:
+  score_range_min: 0.0
+  score_range_max: 0.70
+  alpha: 1.0
+  optimize_mode: "maximize"
+  positive_multiplier: 5.0
+
+checkpoint_interval: 10
+max_code_length: 100000
+log_level: "INFO"
+random_seed: 3407
+
+llm:
+  models:
+    - name: "local-policy"
+      weight: 1.0
+  api_base: "http://localhost:8000/v1"
+  api_key: "EMPTY"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 16384
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  use_alphaevolve_style: true
+  use_system_prompt: false
+  use_system_message_sampling: true
+  system_message_list:
+    - message: |
+        You are an expert in protein fitness modeling, sparse regression, and multimutant extrapolation.
+
+        Improve `fit_and_predict(train_df, test_df, dataset_context)` for a public MULTI-evolve-style benchmark.
+        Training data contains low-order variants, typically singles and doubles; test data contains higher-order
+        multimutants. The evaluator maximizes:
+        `combined_score = 0.7 * mean_pearson_r + 0.3 * mean_precision_top5`.
+
+        Hard requirements:
+        - Define `fit_and_predict(train_df, test_df, dataset_context)`.
+        - Return one finite numeric prediction for each row in `test_df`.
+        - Keep the method memory-aware; avoid dense quadratic mutation matrices or huge kernels.
+        - Do not read files, call the network, or use hidden evaluator state.
+        - Focus edits inside the `RegexTagCustomPruningAlgorithmStart` / `RegexTagCustomPruningAlgorithmEnd` block.
+      weight: 1.0
+  num_top_programs: 3
+  num_diverse_programs: 2
+  num_inspiration_programs: 2
+  use_template_stochasticity: true
+  include_artifacts: true
+  max_artifact_bytes: 16000
+  artifact_security_filter: true
+
+database:
+  population_size: 8000
+  archive_size: 1000
+  num_islands: 8
+  feature_dimensions:
+    - "score"
+    - "complexity"
+  elite_selection_ratio: 0.2
+  exploration_ratio: 0.25
+  exploitation_ratio: 0.55
+  log_prompts: true
+
+evaluator:
+  timeout: 1200
+  max_retries: 0
+  cascade_evaluation: false
+  parallel_evaluations: 8
+  use_llm_feedback: false
+  enable_artifacts: true
+  collect_runtime_environments: true
+  preserve_temp_directories: false
+  runtime_environment_patterns:
+    - "artifacts/*"
+
+diff_based_evolution: true
+allow_full_rewrites: false

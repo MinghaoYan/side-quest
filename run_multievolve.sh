@@ -3,8 +3,8 @@
 #
 # Default GPU split:
 #   - training: GPUs 0,1,2,3
-#   - rollout:  GPUs 4,5,6,7,8,9,10,11
-#   - eval:     GPUs 12,13,14,15
+#   - rollout:  GPUs 4,5,6,7
+#   - eval:     GPUs 8,9,10,11,12,13,14,15
 #
 # Eval workers are blocked onto the dedicated eval pool via PACEVOLVE_EVAL_GPU_IDS,
 # following the same reservation pattern used by the kernel/trimul launcher.
@@ -60,6 +60,7 @@ export PACEVOLVE_MAX_CONCURRENT_EVALS="${PACEVOLVE_MAX_CONCURRENT_EVALS:-8}"
 export PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE="${PACEVOLVE_TENSOR_MODEL_PARALLEL_SIZE:-4}"
 export PACEVOLVE_PIPELINE_MODEL_PARALLEL_SIZE="${PACEVOLVE_PIPELINE_MODEL_PARALLEL_SIZE:-1}"
 export PACEVOLVE_CONTEXT_PARALLEL_SIZE="${PACEVOLVE_CONTEXT_PARALLEL_SIZE:-1}"
+
 export PACEVOLVE_EXPERT_MODEL_PARALLEL_SIZE="${PACEVOLVE_EXPERT_MODEL_PARALLEL_SIZE:-1}"
 export PACEVOLVE_EXPERT_TENSOR_PARALLEL_SIZE="${PACEVOLVE_EXPERT_TENSOR_PARALLEL_SIZE:-1}"
 
@@ -285,6 +286,7 @@ echo "HYBRID_ALPHA_TARGET: ${HYBRID_ALPHA_ANNEAL_TARGET}"
 echo "HYBRID_GRPO_VARIANT: ${HYBRID_GRPO_VARIANT}"
 echo "GPU split: train=${PACEVOLVE_TRAIN_GPUS_PER_NODE}, rollout=${PACEVOLVE_ROLLOUT_NUM_GPUS}, eval=${PACEVOLVE_EVAL_GPU_IDS}"
 echo "rollout_batch_size=${PACEVOLVE_ROLLOUT_BATCH_SIZE}"
+echo "num_rollout=${PACEVOLVE_NUM_ROLLOUT}"
 echo "n_samples_per_prompt=${PACEVOLVE_N_SAMPLES_PER_PROMPT}"
 echo "max_concurrent_evals=${PACEVOLVE_MAX_CONCURRENT_EVALS}"
 echo "==============================================="

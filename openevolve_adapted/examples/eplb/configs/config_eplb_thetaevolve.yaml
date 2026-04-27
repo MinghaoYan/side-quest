@@ -1,0 +1,84 @@
+# ThetaEvolve/OpenEvolve config for Expert Parallelism Load Balancer.
+
+variables:
+  data_path: "pacevolve/tasks/eplb/data"
+  workload_path: "pacevolve/tasks/eplb/data/expert-load.json"
+
+score_transform:
+  score_range_min: 0.0
+  score_range_max: 2.0
+  alpha: 1.0
+  optimize_mode: "maximize"
+  positive_multiplier: 5.0
+
+checkpoint_interval: 10
+max_code_length: 80000
+log_level: "INFO"
+random_seed: 3407
+
+llm:
+  models:
+    - name: "local-policy"
+      weight: 1.0
+  api_base: "http://localhost:8000/v1"
+  api_key: "EMPTY"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 16384
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  use_alphaevolve_style: true
+  use_system_prompt: false
+  use_system_message_sampling: true
+  system_message_list:
+    - message: |
+        You are an expert systems programmer optimizing Expert Parallelism Load Balancing for Mixture-of-Expert inference.
+
+        Improve the Python implementation of `rebalance_experts(weight, num_replicas, num_groups, num_nodes, num_gpus)`.
+        The evaluator measures both future-workload balancedness and runtime speed, and maximizes:
+        `combined_score = (balancedness_score + speed_score) / 2`.
+
+        Hard requirements:
+        - Keep the `rebalance_experts` signature unchanged.
+        - Return `(physical_to_logical_map, logical_to_physical_map, expert_count)`.
+        - Use valid PyTorch tensor logic.
+        - Focus edits inside the `RegexTagCustomPruningAlgorithmStart` / `RegexTagCustomPruningAlgorithmEnd` block.
+        - Do not read files, call the network, or depend on hidden evaluator state.
+      weight: 1.0
+  num_top_programs: 3
+  num_diverse_programs: 2
+  num_inspiration_programs: 2
+  use_template_stochasticity: true
+  include_artifacts: true
+  max_artifact_bytes: 12000
+  artifact_security_filter: true
+
+database:
+  population_size: 10000
+  archive_size: 1000
+  num_islands: 8
+  feature_dimensions:
+    - "score"
+    - "complexity"
+  elite_selection_ratio: 0.2
+  exploration_ratio: 0.25
+  exploitation_ratio: 0.55
+  log_prompts: true
+
+evaluator:
+  timeout: 600
+  max_retries: 1
+  cascade_evaluation: false
+  parallel_evaluations: 8
+  use_llm_feedback: false
+  enable_artifacts: true
+  collect_runtime_environments: true
+  preserve_temp_directories: false
+  runtime_environment_patterns:
+    - "artifacts/*"
+
+diff_based_evolution: true
+allow_full_rewrites: false

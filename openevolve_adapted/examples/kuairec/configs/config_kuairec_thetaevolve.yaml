@@ -1,0 +1,84 @@
+# ThetaEvolve/OpenEvolve config for the KuaRec FuXi-linear task.
+
+variables:
+  dataset_csv: "pacevolve/tasks/kuairec/data/sasrec_format.csv"
+
+score_transform:
+  score_range_min: 0.0
+  score_range_max: 0.30
+  alpha: 1.0
+  optimize_mode: "maximize"
+  positive_multiplier: 5.0
+
+checkpoint_interval: 10
+max_code_length: 220000
+log_level: "INFO"
+random_seed: 3407
+
+llm:
+  models:
+    - name: "local-policy"
+      weight: 1.0
+  api_base: "http://localhost:8000/v1"
+  api_key: "EMPTY"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 16384
+  timeout: 600
+  retries: 3
+  retry_delay: 5
+
+prompt:
+  use_alphaevolve_style: true
+  use_system_prompt: false
+  use_system_message_sampling: true
+  system_message_list:
+    - message: |
+        You are an expert in sequential recommendation, efficient PyTorch sequence models, and time-aware ranking.
+
+        Improve the editable model block in a fixed-budget KuaRec trainer. The fixed code outside the block controls
+        data loading, optimizer, epochs, sampled-softmax training, full-catalog ranking, and wall-clock budget.
+
+        Hard requirements:
+        - Define `build_model(num_items: int, max_history: int)`.
+        - The returned module must implement `encode_users(history_ids, history_timestamps, history_lengths)` and
+          `score_all_items(user_embeddings)`.
+        - Keep the model deterministic and memory-aware for a single GPU run.
+        - Do not use future labels, stack/frame inspection, hidden evaluator state, network calls, or external files.
+        - Avoid degenerate tied-score tricks; the evaluator uses tie-aware ranking diagnostics.
+        - Focus edits inside the `RegexTagCustomPruningAlgorithmStart` / `RegexTagCustomPruningAlgorithmEnd` block.
+      weight: 1.0
+  num_top_programs: 2
+  num_diverse_programs: 1
+  num_inspiration_programs: 1
+  use_template_stochasticity: true
+  include_artifacts: true
+  max_artifact_bytes: 12000
+  artifact_security_filter: true
+
+database:
+  population_size: 4000
+  archive_size: 500
+  num_islands: 8
+  feature_dimensions:
+    - "score"
+    - "complexity"
+  elite_selection_ratio: 0.2
+  exploration_ratio: 0.25
+  exploitation_ratio: 0.55
+  log_prompts: true
+
+evaluator:
+  timeout: 1300
+  max_retries: 0
+  cascade_evaluation: false
+  parallel_evaluations: 8
+  use_llm_feedback: false
+  enable_artifacts: true
+  collect_runtime_environments: true
+  preserve_temp_directories: false
+  runtime_environment_patterns:
+    - "artifacts/*"
+
+diff_based_evolution: true
+allow_full_rewrites: false
