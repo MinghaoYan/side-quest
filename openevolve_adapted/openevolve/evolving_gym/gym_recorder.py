@@ -12,6 +12,100 @@ from openevolve.utils.plot_utils import scan_best_metadata_files, plot_single_ru
 logger = logging.getLogger(__name__)
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert common scalar/tensor values into JSON-serializable objects."""
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
+
+
+def _extract_train_metrics(log_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten slime train log keys for storage in best metadata JSON."""
+    train_metrics = {}
+    for key, value in log_dict.items():
+        if key.startswith("train/"):
+            metric_key = key[len("train/"):].replace("/", "_").replace("-", "_")
+            train_metrics[metric_key] = _json_safe(value)
+        elif "/" not in key:
+            train_metrics[key.replace("-", "_")] = _json_safe(value)
+    return train_metrics
+
+
+def update_best_metadata_train_metrics(
+    record_dir: str,
+    rollout_id: int,
+    log_dict: Dict[str, Any],
+) -> None:
+    """
+    Attach trainer-side metrics to ThetaEvolve best metadata for a rollout.
+
+    The recorder writes best_metadata_step_{rollout_id}.json right after rollout
+    generation; the trainer only knows metrics such as entropy and grad norm
+    afterward, so this function patches the same JSON file in-place.
+    """
+    train_metrics = _extract_train_metrics(log_dict)
+    if not train_metrics:
+        return
+
+    metadata_path = os.path.join(
+        record_dir,
+        "best_program",
+        f"best_step_{rollout_id}",
+        f"best_metadata_step_{rollout_id}.json",
+    )
+
+    if not os.path.exists(metadata_path):
+        logger.debug(
+            "Best metadata file not found for rollout %s at %s",
+            rollout_id,
+            metadata_path,
+        )
+        return
+
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        metadata["train_metrics"] = train_metrics
+
+        history = metadata.get("train_metrics_history")
+        if not isinstance(history, list):
+            history = []
+
+        train_step = train_metrics.get("step")
+        replaced = False
+        if train_step is not None:
+            for idx, entry in enumerate(history):
+                if isinstance(entry, dict) and entry.get("step") == train_step:
+                    history[idx] = train_metrics
+                    replaced = True
+                    break
+        if not replaced:
+            history.append(train_metrics)
+
+        metadata["train_metrics_history"] = history
+
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to update ThetaEvolve train metrics: {e}")
+
+
 class GymRecorder:
     """Simple recorder that adapts controller functions for gym use"""
 
@@ -367,6 +461,9 @@ class GymRecorder:
                     "id": best_program.id,
                     "generation": best_program.generation,
                     "metrics": best_program.metrics,
+                    "rollout_metrics": step_metrics or {},
+                    "train_metrics": {},
+                    "train_metrics_history": [],
                     "iteration_found": best_program.iteration_found,
                     "training_step": training_step,
                     "timestamp": time.time()

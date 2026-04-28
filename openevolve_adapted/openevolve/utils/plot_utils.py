@@ -26,8 +26,11 @@ def scan_best_metadata_files(
     Returns:
         List of (training_step, score) tuples sorted by training_step
     """
-    pattern = os.path.join(run_path, "best_program", "best_metadata_step_*.json")
-    json_files = glob.glob(pattern)
+    patterns = [
+        os.path.join(run_path, "best_program", "best_metadata_step_*.json"),
+        os.path.join(run_path, "best_program", "best_step_*", "best_metadata_step_*.json"),
+    ]
+    json_files = sorted({path for pattern in patterns for path in glob.glob(pattern)})
 
     if not json_files:
         return []

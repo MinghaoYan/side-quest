@@ -509,6 +509,23 @@ def train(rollout_id, model, optimizer, opt_param_scheduler, data_iterator, num_
 
             print(f"{role_tag}step {accumulated_step_id}: {log_dict}")
 
+            # ThetaEvolve records: append trainer metrics to best_metadata_step_*.json
+            if getattr(args, "evolving_gym_record", False) and getattr(
+                args, "evolving_gym_record_dir", None
+            ):
+                try:
+                    from openevolve.evolving_gym.gym_recorder import (
+                        update_best_metadata_train_metrics,
+                    )
+
+                    record_log_dict = dict(log_dict)
+                    record_log_dict["train/step"] = accumulated_step_id
+                    update_best_metadata_train_metrics(
+                        args.evolving_gym_record_dir, rollout_id, record_log_dict
+                    )
+                except Exception:
+                    pass
+
             # PACEvolve records: write train metrics to step metrics.json
             if getattr(args, "pacevolve_gym_record", False) and getattr(
                 args, "pacevolve_gym_record_dir", None
