@@ -36,6 +36,8 @@ class EvaluationResult(TypedDict, total=False):
     balancedness_score: float
     speed_score: float
     combined_score: float
+    eval_device: str
+    cuda_visible_devices: str
     error: str
 
 
@@ -54,6 +56,14 @@ def load_workloads(path: str) -> list[torch.Tensor]:
         workloads.append(load)
 
     return workloads
+
+
+def select_eval_device() -> torch.device:
+    if os.environ.get("EPLB_FORCE_CPU", "").strip() in {"1", "true", "True"}:
+        return torch.device("cpu")
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    return torch.device("cpu")
 
 
 def simulate_inference(
@@ -92,7 +102,15 @@ def simulate_inference(
 
 
 def evaluate(program_path: str, workload_path: str) -> EvaluationResult:
-    workloads = load_workloads(workload_path)
+    eval_device = select_eval_device()
+    workloads = [
+        workload.to(eval_device, non_blocking=True)
+        if eval_device.type == "cuda"
+        else workload
+        for workload in load_workloads(workload_path)
+    ]
+    if eval_device.type == "cuda":
+        torch.cuda.synchronize(eval_device)
 
     try:
         spec = importlib.util.spec_from_file_location("program", program_path)
@@ -112,6 +130,8 @@ def evaluate(program_path: str, workload_path: str) -> EvaluationResult:
         balancedness_scores = []
         times = []
         for i in range(len(workloads) - 1):
+            if eval_device.type == "cuda":
+                torch.cuda.synchronize(eval_device)
             start_time = time.perf_counter()
             _, log2phy, logcnt = program.rebalance_experts(
                 workloads[i],
@@ -121,6 +141,8 @@ def evaluate(program_path: str, workload_path: str) -> EvaluationResult:
                 NUM_GPUS,
             )
             balancedness_score = simulate_inference(log2phy, logcnt, workloads[i + 1])
+            if eval_device.type == "cuda":
+                torch.cuda.synchronize(eval_device)
             end_time = time.perf_counter()
             balancedness_scores.append(balancedness_score)
             times.append(end_time - start_time)
@@ -133,6 +155,8 @@ def evaluate(program_path: str, workload_path: str) -> EvaluationResult:
             "balancedness_score": float(avg_balancedness_score),
             "speed_score": float(speed_score),
             "combined_score": float(combined_score),
+            "eval_device": str(eval_device),
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         }
     except Exception as e:
         traceback.print_exc(file=sys.stderr)

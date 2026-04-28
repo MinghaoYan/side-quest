@@ -7,15 +7,23 @@ without invoking any PACEvolve workflow or context-management code.
 
 from __future__ import annotations
 
-import importlib.util
+import ast
 import math
 import os
+import queue
+import re
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_GPU_QUEUE: queue.Queue[str] | None = None
+_GPU_QUEUE_KEY: str | None = None
+_GPU_QUEUE_LOCK = threading.Lock()
 
 
 def _repo_root() -> Path:
@@ -80,15 +88,101 @@ def _rl_normalized_reward(score: float, config: dict[str, Any]) -> float:
     return float((linear ** alpha) * multiplier)
 
 
-def _load_pace_eplb_module():
-    eval_path = _repo_root() / "pacevolve" / "tasks" / "eplb" / "eval" / "evaluate_eplb.py"
-    spec = importlib.util.spec_from_file_location("thetaevolve_pace_eplb_eval", eval_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load EPLB evaluator from {eval_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["thetaevolve_pace_eplb_eval"] = module
-    spec.loader.exec_module(module)
-    return module
+def _eval_timeout(config: dict[str, Any]) -> int:
+    evaluator_cfg = config.get("evaluator", {}) if isinstance(config, dict) else {}
+    value = evaluator_cfg.get("timeout", evaluator_cfg.get("timeout_s", 600))
+    try:
+        return int(value)
+    except Exception:
+        return 600
+
+
+def _get_eval_gpu_queue() -> queue.Queue[str] | None:
+    global _GPU_QUEUE, _GPU_QUEUE_KEY
+
+    gpu_ids_env = os.environ.get("THETAEVOLVE_EVAL_GPU_IDS", "")
+    gpu_ids = [gpu_id.strip() for gpu_id in gpu_ids_env.split(",") if gpu_id.strip()]
+    queue_key = ",".join(gpu_ids)
+    if not gpu_ids:
+        return None
+
+    with _GPU_QUEUE_LOCK:
+        if _GPU_QUEUE is None or _GPU_QUEUE_KEY != queue_key:
+            _GPU_QUEUE = queue.Queue()
+            for gpu_id in gpu_ids:
+                _GPU_QUEUE.put(gpu_id)
+            _GPU_QUEUE_KEY = queue_key
+    return _GPU_QUEUE
+
+
+class _EvalGpuLease:
+    def __enter__(self) -> str | None:
+        self._queue = _get_eval_gpu_queue()
+        self.gpu_id = self._queue.get() if self._queue is not None else None
+        return self.gpu_id
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._queue is not None and self.gpu_id is not None:
+            self._queue.put(self.gpu_id)
+
+
+def _parse_candidate_stdout(stdout: str) -> dict[str, Any]:
+    match = re.search(r"Candidate:\s*({.+?})\s*$", stdout, flags=re.DOTALL)
+    if not match:
+        raise ValueError(f"Could not parse EPLB evaluator output: {stdout[-1000:]}")
+
+    payload = re.sub(r"np\.float64\(([^()]+)\)", r"\1", match.group(1))
+    parsed = ast.literal_eval(payload)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"EPLB evaluator returned non-dict payload: {type(parsed)}")
+    return parsed
+
+
+def _run_pace_eplb_subprocess(
+    program_path: str,
+    workload_path: Path,
+    timeout: int,
+    gpu_id: str | None,
+) -> dict[str, Any]:
+    eval_script = _repo_root() / "pacevolve" / "tasks" / "eplb" / "eval" / "evaluate_eplb.py"
+    env = os.environ.copy()
+    if gpu_id is not None:
+        env["CUDA_VISIBLE_DEVICES"] = gpu_id
+
+    pythonpath_parts = [str(_repo_root())]
+    if env.get("PYTHONPATH"):
+        pythonpath_parts.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+    command = [
+        sys.executable or "python3",
+        str(eval_script),
+        "--candidate_path",
+        program_path,
+        "--data_path",
+        str(workload_path.parent),
+        "--workload_path",
+        str(workload_path),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=str(_repo_root()),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        stdout = completed.stdout.strip()
+        detail = stderr or stdout or f"returncode={completed.returncode}"
+        raise RuntimeError(detail[-2000:])
+
+    metrics = _parse_candidate_stdout(completed.stdout)
+    if gpu_id is not None:
+        metrics["eval_cuda_visible_devices"] = gpu_id
+    return metrics
 
 
 def _error_metrics(message: str, elapsed: float = 0.0) -> dict[str, Any]:
@@ -117,8 +211,15 @@ def evaluate(program_path: str, temp_dir: str | None = None) -> dict[str, Any]:
         return _error_metrics(f"Missing EPLB workload file: {workload_path}", time.time() - started)
 
     try:
-        module = _load_pace_eplb_module()
-        raw = module.evaluate(program_path, str(workload_path))
+        with _EvalGpuLease() as gpu_id:
+            raw = _run_pace_eplb_subprocess(
+                program_path,
+                workload_path,
+                _eval_timeout(config),
+                gpu_id,
+            )
+    except subprocess.TimeoutExpired:
+        return _error_metrics(f"EPLB evaluator timed out after {_eval_timeout(config)}s", time.time() - started)
     except Exception as exc:
         return _error_metrics(str(exc), time.time() - started)
 

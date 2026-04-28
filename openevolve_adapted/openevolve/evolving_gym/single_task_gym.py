@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 import time
 import logging
@@ -115,7 +116,18 @@ class SingleTaskEvolvingGym:
             database=self.database,
         )
 
-        # Concurrency control
+        # Concurrency control. For GPU-backed evaluators such as EPLB, mirror
+        # the PACEvolve path by capping concurrent evals to the eval GPU pool.
+        eval_gpu_ids_env = os.environ.get("THETAEVOLVE_EVAL_GPU_IDS", "")
+        self._eval_gpu_ids = [
+            gpu_id.strip()
+            for gpu_id in eval_gpu_ids_env.split(",")
+            if gpu_id.strip()
+        ]
+        if self._eval_gpu_ids:
+            max_concurrent_evaluations = min(
+                max_concurrent_evaluations, len(self._eval_gpu_ids)
+            )
         self.max_concurrent_evaluations = max_concurrent_evaluations
         self._evaluation_semaphore = asyncio.Semaphore(max_concurrent_evaluations)
 
@@ -134,6 +146,7 @@ class SingleTaskEvolvingGym:
             f"Initial program loaded from {initial_program_path}, "
             f"language={self.config.language}, "
             f"max_concurrent_evaluations={max_concurrent_evaluations}, "
+            f"eval_gpu_ids={self._eval_gpu_ids}, "
             f"log_prompts={log_prompts}, "
             f"lazy_output_penalty_level={lazy_output_penalty_level}, "
             f"random_seed={self.config.random_seed}"
