@@ -156,7 +156,11 @@ class GymRecorder:
                 self._save_historical_records_adapted(controller_adapter, training_step)
 
             # Always save best program
-            self._save_best_program_adapted(controller_adapter, training_step)
+            self._save_best_program_adapted(
+                controller_adapter,
+                training_step,
+                step_metrics=step_metrics,
+            )
 
             # Update performance visualization
             self.plot_performance_curve()
@@ -443,7 +447,13 @@ class GymRecorder:
         except Exception as e:
             print(f"❌ Error printing score distribution: {e}")
 
-    def _save_best_program_adapted(self, adapter, training_step: int, save_runtime_env: bool = True):
+    def _save_best_program_adapted(
+        self,
+        adapter,
+        training_step: int,
+        save_runtime_env: bool = True,
+        step_metrics: Optional[Dict[str, Any]] = None,
+    ):
         """Save best program from current database including runtime environment"""
         try:
             best_program = adapter.database.get_best_program()
