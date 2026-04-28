@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
-import importlib.util
+import json
 import math
 import os
+import queue
+import re
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+_GPU_QUEUE: queue.Queue[str] | None = None
+_GPU_LOCK = threading.Lock()
 
 
 def _repo_root() -> Path:
@@ -36,6 +44,66 @@ def _resolve_path(value: str | os.PathLike[str] | None) -> Path | None:
     if not path.is_absolute():
         path = _repo_root() / path
     return path
+
+
+def _timeout_seconds(config: dict[str, Any]) -> int:
+    evaluator_cfg = config.get("evaluator", {}) if isinstance(config, dict) else {}
+    try:
+        timeout = int(evaluator_cfg.get("timeout", 1200))
+    except Exception:
+        timeout = 1200
+    return max(timeout, 1)
+
+
+def _get_eval_gpu_queue() -> queue.Queue[str] | None:
+    global _GPU_QUEUE
+    gpu_ids = [
+        item.strip()
+        for item in os.environ.get("THETAEVOLVE_EVAL_GPU_IDS", "").split(",")
+        if item.strip()
+    ]
+    if not gpu_ids:
+        return None
+    with _GPU_LOCK:
+        if _GPU_QUEUE is None:
+            _GPU_QUEUE = queue.Queue()
+            for gpu_id in gpu_ids:
+                _GPU_QUEUE.put(gpu_id)
+        return _GPU_QUEUE
+
+
+def _acquire_eval_gpu() -> str | None:
+    gpu_queue = _get_eval_gpu_queue()
+    if gpu_queue is None:
+        return None
+    return gpu_queue.get()
+
+
+def _release_eval_gpu(gpu_id: str | None) -> None:
+    if gpu_id is None:
+        return
+    gpu_queue = _get_eval_gpu_queue()
+    if gpu_queue is not None:
+        gpu_queue.put(gpu_id)
+
+
+def _parse_candidate_metrics(stdout: str) -> dict[str, Any] | None:
+    matches = re.findall(r"Candidate:\s*(\{.+\})", stdout)
+    if not matches:
+        return None
+    try:
+        payload = json.loads(matches[-1])
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _as_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 def _rl_normalized_reward(score: float, config: dict[str, Any]) -> float:
@@ -66,22 +134,8 @@ def _rl_normalized_reward(score: float, config: dict[str, Any]) -> float:
     return float((linear ** alpha) * multiplier)
 
 
-def _load_pace_multievolve_module():
-    eval_dir = _repo_root() / "pacevolve" / "tasks" / "multievolve_extrapolate" / "eval"
-    eval_path = eval_dir / "evaluate_multievolve_extrapolate.py"
-    if str(eval_dir) not in sys.path:
-        sys.path.insert(0, str(eval_dir))
-    spec = importlib.util.spec_from_file_location("thetaevolve_pace_multievolve_eval", eval_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load MULTI-evolve evaluator from {eval_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["thetaevolve_pace_multievolve_eval"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _error_metrics(message: str, elapsed: float = 0.0) -> dict[str, Any]:
-    return {
+def _error_metrics(message: str, elapsed: float = 0.0, stdout: str = "", stderr: str = "") -> dict[str, Any]:
+    metrics = {
         "combined_score": 0.0,
         "mean_pearson_r": 0.0,
         "mean_precision_top5": 0.0,
@@ -90,6 +144,11 @@ def _error_metrics(message: str, elapsed: float = 0.0) -> dict[str, Any]:
         "program_runtime": float(elapsed),
         "error": message,
     }
+    if stdout:
+        metrics["stdout_tail"] = stdout[-2000:]
+    if stderr:
+        metrics["stderr_tail"] = stderr[-2000:]
+    return metrics
 
 
 def evaluate(program_path: str, temp_dir: str | None = None) -> dict[str, Any]:
@@ -107,24 +166,76 @@ def evaluate(program_path: str, temp_dir: str | None = None) -> dict[str, Any]:
     if not prepared_summary.exists():
         return _error_metrics(f"Missing prepared benchmark summary: {prepared_summary}", time.time() - started)
 
-    previous_artifact_dir = os.environ.get("PACEVOLVE_ARTIFACT_DIR")
+    eval_script = (
+        _repo_root()
+        / "pacevolve"
+        / "tasks"
+        / "multievolve_extrapolate"
+        / "eval"
+        / "evaluate_multievolve_extrapolate.py"
+    )
+    command = [
+        sys.executable,
+        str(eval_script),
+        "--candidate_path",
+        program_path,
+        "--data_dir",
+        str(data_dir),
+        "--benchmark_level",
+        benchmark_level,
+        "--benchmark_protocol",
+        benchmark_protocol,
+    ]
+
+    env = os.environ.copy()
     if temp_dir:
-        os.environ["PACEVOLVE_ARTIFACT_DIR"] = str(Path(temp_dir) / "artifacts")
+        env["PACEVOLVE_ARTIFACT_DIR"] = str(Path(temp_dir) / "artifacts")
+
+    eval_gpu_id = _acquire_eval_gpu()
+    if eval_gpu_id is not None:
+        env["CUDA_VISIBLE_DEVICES"] = eval_gpu_id
+
     try:
-        module = _load_pace_multievolve_module()
-        raw = module.evaluate(program_path, str(data_dir), benchmark_level, benchmark_protocol)
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=_timeout_seconds(config),
+                env=env,
+                check=False,
+            )
+        finally:
+            _release_eval_gpu(eval_gpu_id)
+    except subprocess.TimeoutExpired as exc:
+        elapsed = time.time() - started
+        return _error_metrics(
+            f"MULTI-evolve evaluation timed out after {_timeout_seconds(config)}s",
+            elapsed,
+            stdout=_as_text(exc.stdout),
+            stderr=_as_text(exc.stderr),
+        )
     except Exception as exc:
         return _error_metrics(str(exc), time.time() - started)
-    finally:
-        if previous_artifact_dir is None:
-            os.environ.pop("PACEVOLVE_ARTIFACT_DIR", None)
-        else:
-            os.environ["PACEVOLVE_ARTIFACT_DIR"] = previous_artifact_dir
 
     elapsed = time.time() - started
+    if result.returncode != 0:
+        return _error_metrics(
+            f"MULTI-evolve subprocess exited with code {result.returncode}",
+            elapsed,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+
+    raw = _parse_candidate_metrics(result.stdout)
     metrics = dict(raw or {})
     if "combined_score" not in metrics:
-        return _error_metrics("MULTI-evolve evaluator did not return combined_score", elapsed)
+        return _error_metrics(
+            "MULTI-evolve evaluator did not return combined_score",
+            elapsed,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
 
     try:
         score = float(metrics["combined_score"])
